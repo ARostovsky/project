@@ -30,6 +30,7 @@ class Build{
     def name
     def link
     def version
+    def log4j
 
 
     Build(edition, version, binding){
@@ -46,8 +47,11 @@ class Build{
         ant.mkdir(dir: "checksums")
         ant.checksum(todir: "checksums", totalproperty: 'sum'){
             fileset(dir: this.folder){
-                exclude(name: "**\\Uninstall.exe")
-                exclude(name: "**\\classes.jsa")
+                if (binding.os=='win') {
+                    println("URGENT !!!")
+                    exclude(name: "**\\Uninstall.exe")
+                    exclude(name: "**\\classes.jsa")
+                }
             }
         }
         ant.delete(dir: "checksums")
@@ -70,6 +74,15 @@ class Build{
         return this.id
     }
 
+    def getLog4j(){
+        this.folder.toFile().eachFileRecurse(FileType.FILES) { file ->
+            if (file.name.contains('log4j.jar')) {
+                this.log4j = file
+            }
+        }
+        return this.log4j
+    }
+
     void downloadBuild(){
         def ant = new AntBuilder()
         ant.get(dest: this.installerName) {
@@ -81,7 +94,7 @@ class Build{
         delete(toFolder)
         def ant = new AntBuilder()
         ant.mkdir(dir: toFolder)
-        this.folder = Paths.get(toFolder)
+        this.folder = Paths.get(toFolder.toString())
 
         switch (binding.os) {
             case 'win':
@@ -90,13 +103,18 @@ class Build{
                 }
                 break
             case 'unix':
-                ant.unzip(src: $installerName, dest: $folder)
+                ant.gunzip(src: this.installerName)
+                ant.delete(file: this.installerName)
+                ant.untar(src: this.installerName[0..-4], dest: this.folder)
+
+                this.folder.eachDir { directory ->
+                    this.folder = Paths.get(directory.toString())
+                }
+
                 break
             case 'mac':
-
                 break
         }
-
 
         calcChecksum()
     }
@@ -110,7 +128,7 @@ class Build{
         def ant = new AntBuilder()
         def classpath = ant.path {
             pathelement(path: patch)
-            pathelement(path: sprintf("$folder\\lib\\log4j.jar"))
+            pathelement(path: this.getLog4j())
         }
         ant.java(classpath: "${classpath}",
                  classname: "com.intellij.updater.Runner",
@@ -128,8 +146,8 @@ static def findFiles(mask, directory='.') {
     def list = []
     def dir = new File(directory)
     dir.eachFileRecurse (FileType.FILES) { file ->
-        println(file)
         if (file.name.contains(mask)) {
+            println(file)
             list << file
         }
     }
