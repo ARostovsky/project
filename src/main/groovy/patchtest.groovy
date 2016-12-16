@@ -3,11 +3,12 @@ import java.nio.file.Path
 import java.nio.file.Paths
 
 
-product = "pycharm"
-platform = %platform.ext% // "exe"
-buildType = %buildType% //"ijplatform_master_PyCharm_InstallersForEapRelease"
-currDir = %teamcity.build.checkoutDir% // Paths.get('folder').toAbsolutePath()
-timeout = 30
+def map = evaluate(Arrays.toString(args))
+println(sprintf("Args: $map"))
+product = map.product // "pycharm"
+platform = map.platform // "exe"
+buildType = map.buildType // "ijplatform_master_PyCharm_InstallersForEapRelease"
+timeout = map.timeout
 
 
 class Build{
@@ -93,7 +94,7 @@ class Build{
                  classname: "com.intellij.updater.Runner",
                  fork: "true",
                  maxmemory: "800m",
-                 timeout: binding.timeout * 1000){
+                 timeout: binding.timeout.toInteger() * 1000){
             arg(line: "install '$folder'")
         }
         calcChecksum()
@@ -105,6 +106,7 @@ static def findFiles(mask, directory='.') {
     def list = []
     def dir = new File(directory)
     dir.eachFileRecurse (FileType.FILES) { file ->
+        println(file)
         if (file.name.contains(mask)) {
             list << file
         }
@@ -112,7 +114,7 @@ static def findFiles(mask, directory='.') {
     return list
 }
 
-def main(dir='.'){
+def main(dir='patches'){
     patches = findFiles(mask='.jar', directory=dir)
     println("##teamcity[enteredTheMatrix]")
     println("##teamcity[testCount count='$patches.size']")
