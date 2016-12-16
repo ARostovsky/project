@@ -2,12 +2,21 @@ import groovy.io.FileType
 import java.nio.file.Path
 import java.nio.file.Paths
 
+platformMatrix = [win: "exe",
+                  unix: "tar.gz",
+                  mac: ".dmg"]
 
 def map = evaluate(Arrays.toString(args))
 println(sprintf("Args: $map"))
-product = map.product // "pycharm"
-platform = map.platform // "exe"
-buildType = map.buildType // "ijplatform_master_PyCharm_InstallersForEapRelease"
+
+product = map.product
+os = map.platform
+if (platformMatrix.containsKey(os)){
+    extension = platformMatrix.get(os)
+} else {
+    throw new RuntimeException(sprintf("Wrong os: $map.platform"))
+}
+buildType = map.buildType
 timeout = map.timeout
 
 
@@ -27,7 +36,7 @@ class Build{
         this.edition = edition
         this.version = version
         this.binding = binding
-        this.installerName = sprintf('%1$s%2$s-%3$s.%4$s', [binding.product, edition, version, binding.platform])
+        this.installerName = sprintf('%1$s%2$s-%3$s.%4$s', [binding.product, edition, version, binding.extension])
         this.getId()
         this.getLink()
     }
@@ -73,9 +82,22 @@ class Build{
         def ant = new AntBuilder()
         ant.mkdir(dir: toFolder)
         this.folder = Paths.get(toFolder)
-        ant.exec(executable: "cmd", failonerror: "True") {
-            arg(line: "/k $installerName /S /D=$folder.absolutePath && ping 127.0.0.1 -n $binding.timeout > nul")
+
+        switch (binding.os) {
+            case 'win':
+                ant.exec(executable: "cmd", failonerror: "True") {
+                    arg(line: "/k $installerName /S /D=$folder.absolutePath && ping 127.0.0.1 -n $binding.timeout > nul")
+                }
+                break
+            case 'unix':
+                ant.unzip(src: $installerName, dest: $folder)
+                break
+            case 'mac':
+
+                break
         }
+
+
         calcChecksum()
     }
 
@@ -100,7 +122,7 @@ class Build{
         calcChecksum()
     }
 }
-//abc
+
 
 static def findFiles(mask, directory='.') {
     def list = []

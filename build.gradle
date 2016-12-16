@@ -13,8 +13,8 @@ task runScript (dependsOn: 'classes', type: JavaExec) {
     main = 'patchtest'
     classpath = sourceSets.main.runtimeClasspath
 
-    def product = project.hasProperty('product') ? project.getProperty('product') : null
-    def platform = project.hasProperty('platform') ? project.getProperty('platform') : null   // %platform.ext%
+    def product = project.hasProperty('product') ? project.getProperty('product') : null  // %product%
+    def platform = project.hasProperty('platform') ? project.getProperty('platform') : null   // %platform%
     def buildType = project.hasProperty('buildType') ? project.getProperty('buildType') : null  // %buildType%
     def timeout = project.hasProperty('timeout') ? project.getProperty('timeout') : '30'
 
