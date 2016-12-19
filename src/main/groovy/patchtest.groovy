@@ -109,9 +109,11 @@ class Build{
                 redefineFolder()
                 break
             case 'mac':
+                println("##teamcity[blockOpened name='unzip output']")
                 ant.exec(executable: "unzip", failonerror: "True"){
                     arg(line: "$installerName -d $folder")
                 }
+                println("##teamcity[blockClosed name='unzip output']")
 
                 redefineFolder(2)
                 break
