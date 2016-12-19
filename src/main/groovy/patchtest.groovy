@@ -152,7 +152,7 @@ class Build{
                  classname: "com.intellij.updater.Runner",
                  fork: "true",
                  maxmemory: "800m",
-                 timeout: binding.timeout.toInteger() * 1000){
+                 timeout: binding.timeout.toInteger() * 2000){
             arg(line: "install '$folder'")
         }
         calcChecksum()
