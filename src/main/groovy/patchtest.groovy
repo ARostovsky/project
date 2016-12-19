@@ -4,7 +4,7 @@ import java.nio.file.Paths
 
 platformMatrix = [win: "exe",
                   unix: "tar.gz",
-                  mac: ".dmg"]
+                  mac: "sit"]
 
 def map = evaluate(Arrays.toString(args))
 println(sprintf("Args: $map"))
@@ -48,7 +48,6 @@ class Build{
         ant.checksum(todir: "checksums", totalproperty: 'sum'){
             fileset(dir: this.folder){
                 if (binding.os=='win') {
-                    println("URGENT !!!")
                     exclude(name: "**\\Uninstall.exe")
                     exclude(name: "**\\classes.jsa")
                 }
@@ -91,7 +90,7 @@ class Build{
     }
 
     void install(toFolder){
-        delete(toFolder)
+        deleteFolder(toFolder)
         def ant = new AntBuilder()
         ant.mkdir(dir: toFolder)
         this.folder = Paths.get(toFolder.toString())
@@ -107,21 +106,30 @@ class Build{
                 ant.delete(file: this.installerName)
                 ant.untar(src: this.installerName[0..-4], dest: this.folder)
 
-                this.folder.eachDir { directory ->
-                    this.folder = Paths.get(directory.toString())
-                }
-
+                redefineFolder()
                 break
             case 'mac':
+                ant.unzip(src: this.installerName, dest: this.folder)
+
+                redefineFolder(2)
                 break
         }
 
         calcChecksum()
     }
 
-    void delete(toFolder=this.folder){
+    void redefineFolder(depth=1){
+        assert depth > 0
+        for (i in 1..depth) {
+            this.folder.eachDir { directory ->
+                this.folder = Paths.get(directory.toString())
+            }
+        }
+    }
+
+    void deleteFolder(folder=this.folder){
         def ant = new AntBuilder()
-        ant.delete(dir: toFolder)
+        ant.delete(dir: folder)
     }
 
     void patch(patch){
@@ -179,8 +187,8 @@ def main(dir='patches'){
         }
 
         println(sprintf("##teamcity[testFinished name='%s edition test']", splitz[0]))
-        prev.delete()
-        curr.delete()
+        prev.deleteFolder()
+        curr.deleteFolder()
     }
     println("##teamcity[testSuiteFinished name='Patch Update Autotest']")
 }
