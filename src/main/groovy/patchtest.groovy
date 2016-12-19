@@ -33,11 +33,15 @@ class Build{
     def log4j
 
 
-    Build(edition, version, binding){
+    Build(edition, version, binding, jdk=true){
         this.edition = edition
         this.version = version
         this.binding = binding
-        this.installerName = sprintf('%1$s%2$s-%3$s.%4$s', [binding.product, edition, version, binding.extension])
+        this.installerName = sprintf('%s%s-%s%s.%s', [binding.product,
+                                                      edition,
+                                                      version,
+                                                      (jdk) ? '' : '-no-jdk',
+                                                      binding.extension])
         this.getId()
         this.getLink()
     }
@@ -117,6 +121,8 @@ class Build{
 
                 redefineFolder(2)
                 break
+            default:
+                throw new RuntimeException(sprintf("Wrong os: $binding.os"))
         }
 
         calcChecksum()
@@ -173,10 +179,17 @@ def main(dir='patches'){
     println("##teamcity[testSuiteStarted name='Patch Update Autotest']")
 
     patches.each { patch ->
-        splitz = patch.getName().split('-')
-        println(sprintf("##teamcity[testStarted name='%s edition test']", splitz[0]))
-        prev = new Build(splitz[0], splitz[1], binding)
-        curr = new Build(splitz[0], splitz[2], binding)
+        patchName = patch.getName()
+        splitz = patchName.split('-')
+
+        jdk = (!patchName.contains('no-jdk'))
+        testName = sprintf("%s%s edition test, patch name: %s", [splitz[0],
+                                                                  (jdk) ? '' : ' (no-jdk)',
+                                                                  patchName])
+        println(sprintf("##teamcity[testStarted name='%s']", testName))
+
+        prev = new Build(splitz[0], splitz[1], binding, jdk)
+        curr = new Build(splitz[0], splitz[2], binding, jdk)
 
         prev.downloadBuild()
         prev.install('prev')
@@ -186,11 +199,11 @@ def main(dir='patches'){
         curr.install('curr')
 
         if (prev.checksum != curr.checksum){
-            println(sprintf("##teamcity[testFailed name='%s edition test'] message='Checksums are different: %s and %s']",
-                    [splitz[0], prev.checksum, curr.checksum]))
+            println(sprintf("##teamcity[testFailed name='%s'] message='Checksums are different: %s and %s']",
+                    [testName, prev.checksum, curr.checksum]))
         }
 
-        println(sprintf("##teamcity[testFinished name='%s edition test']", splitz[0]))
+        println(sprintf("##teamcity[testFinished name='%s']", testName))
         prev.deleteFolder()
         curr.deleteFolder()
     }
