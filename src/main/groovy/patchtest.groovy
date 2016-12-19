@@ -55,7 +55,7 @@ class Build{
         }
         ant.delete(dir: "checksums")
         this.checksum = ant.project.properties.sum
-        ant.echo(this.checksum)
+        ant.echo("Checksum is $checksum")
     }
 
     def getChecksum(){
@@ -109,7 +109,9 @@ class Build{
                 redefineFolder()
                 break
             case 'mac':
-                ant.unzip(src: this.installerName, dest: this.folder)
+                ant.exec(executable: "unzip", failonerror: "True"){
+                    arg(line: "$installerName -d $folder")
+                }
 
                 redefineFolder(2)
                 break
