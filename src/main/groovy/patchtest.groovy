@@ -2,11 +2,11 @@ import groovy.io.FileType
 import java.nio.file.Path
 import java.nio.file.Paths
 
-platformMatrix = [win: "exe",
-                  unix: "tar.gz",
-                  mac: "sit"]
+LinkedHashMap<String, String> platformMatrix = ["win": "exe",
+                                                "unix": "tar.gz",
+                                                "mac": "sit"]
 
-def map = evaluate(Arrays.toString(args))
+Map<String, String> map = evaluate(Arrays.toString(args)) as Map<String, String>
 println(sprintf("Args: $map"))
 
 product = map.product
@@ -17,20 +17,18 @@ if (platformMatrix.containsKey(os)){
     throw new RuntimeException(sprintf("Wrong os: $map.platform"))
 }
 buildType = map.buildType
-timeout = map.timeout
+timeout = map.timeout.toInteger()
 
 
 class Build{
-    def binding
-    def checksum
+    Binding binding
+    String checksum
     Path folder
-    def edition
-    def id
-    def installerName
-    def name
-    def link
-    def version
-    def log4j
+    String edition
+    String id
+    String installerName
+    String version
+    File log4j
 
 
     Build(edition, version, binding, jdk=true){
@@ -42,12 +40,29 @@ class Build{
                                                       version,
                                                       (jdk) ? '' : '-no-jdk',
                                                       binding.extension])
-        this.getId()
-        this.getLink()
+    }
+
+    def getId(){
+        if (!this.id){
+            String url = "http://buildserver.labs.intellij.net/guestAuth/app/rest/builds/buildType:$binding.buildType,number:$version/id"
+            this.id = new URL(url).getText()
+        }
+        return this.id
+    }
+
+    def getLog4j(){
+        if (!this.log4j) {
+            this.folder.toFile().eachFileRecurse(FileType.FILES) { file ->
+                if (file.name.contains('log4j.jar')) {
+                    this.log4j = file
+                }
+            }
+        }
+        return this.log4j
     }
 
     void calcChecksum(){
-        def ant = new AntBuilder()
+        AntBuilder ant = new AntBuilder()
         ant.mkdir(dir: "checksums")
         ant.checksum(todir: "checksums", totalproperty: 'sum'){
             fileset(dir: this.folder){
@@ -62,32 +77,8 @@ class Build{
         ant.echo("Checksum is $checksum")
     }
 
-    def getChecksum(){
-        if (!checksum){
-            calcChecksum()
-        }
-        return checksum
-    }
-
-    def getId(){
-        if (!this.id){
-            def url = "http://buildserver.labs.intellij.net/guestAuth/app/rest/builds/buildType:$binding.buildType,number:$version/id"
-            this.id = new URL(url).getText()
-        }
-        return this.id
-    }
-
-    def getLog4j(){
-        this.folder.toFile().eachFileRecurse(FileType.FILES) { file ->
-            if (file.name.contains('log4j.jar')) {
-                this.log4j = file
-            }
-        }
-        return this.log4j
-    }
-
     void downloadBuild(){
-        def ant = new AntBuilder()
+        AntBuilder ant = new AntBuilder()
         ant.get(dest: this.installerName) {
             url(url: "http://buildserver.labs.intellij.net/guestAuth/repository/download/$binding.buildType/$id:id/$installerName")
         }
@@ -95,7 +86,7 @@ class Build{
 
     void install(toFolder){
         deleteFolder(toFolder)
-        def ant = new AntBuilder()
+        AntBuilder ant = new AntBuilder()
         ant.mkdir(dir: toFolder)
         this.folder = Paths.get(toFolder.toString())
 
@@ -138,31 +129,32 @@ class Build{
     }
 
     void deleteFolder(folder=this.folder){
-        def ant = new AntBuilder()
+        AntBuilder ant = new AntBuilder()
         ant.delete(dir: folder)
     }
 
     void patch(patch){
-        def ant = new AntBuilder()
-        def classpath = ant.path {
+        AntBuilder ant = new AntBuilder()
+        org.apache.tools.ant.types.Path classpath = ant.path {
             pathelement(path: patch)
-            pathelement(path: this.getLog4j())
+            pathelement(path: this.log4j)
         }
         ant.java(classpath: "${classpath}",
-                 classname: "com.intellij.updater.Runner",
-                 fork: "true",
-                 maxmemory: "800m",
-                 timeout: binding.timeout.toInteger() * 2000){
+                classname: "com.intellij.updater.Runner",
+                fork: "true",
+                maxmemory: "800m",
+                timeout: binding.timeout * 2000){
             arg(line: "install '$folder'")
         }
+
         calcChecksum()
     }
 }
 
 
-static def findFiles(mask, directory='.') {
-    def list = []
-    def dir = new File(directory)
+static findFiles(mask, directory='.') {
+    ArrayList list = []
+    File dir = new File(directory)
     dir.eachFileRecurse (FileType.FILES) { file ->
         if (file.name.contains(mask)) {
             println(file)
@@ -173,23 +165,23 @@ static def findFiles(mask, directory='.') {
 }
 
 def main(dir='patches'){
-    patches = findFiles(mask='.jar', directory=dir)
+    ArrayList<File> patches = findFiles(mask='.jar', directory=dir)
     println("##teamcity[enteredTheMatrix]")
     println("##teamcity[testCount count='$patches.size']")
     println("##teamcity[testSuiteStarted name='Patch Update Autotest']")
 
-    patches.each { patch ->
-        patchName = patch.getName()
-        splitz = patchName.split('-')
+    patches.each {  patch ->
+        String patchName = patch.getName()
+        List<String> splitz = patchName.split('-')
 
-        jdk = (!patchName.contains('no-jdk'))
-        testName = sprintf("%s%s edition test, patch name: %s", [splitz[0],
-                                                                  (jdk) ? '' : ' (no-jdk)',
-                                                                  patchName])
+        Boolean jdk = (!patchName.contains('no-jdk'))
+        String testName = sprintf("%s%s edition test, patch name: %s", [splitz.get(0),
+                                                                        (jdk) ? '' : ' (no-jdk)',
+                                                                        patchName])
         println(sprintf("##teamcity[testStarted name='%s']", testName))
 
-        prev = new Build(splitz[0], splitz[1], binding, jdk)
-        curr = new Build(splitz[0], splitz[2], binding, jdk)
+        Build prev = new Build(splitz.get(0), splitz.get(1), binding, jdk)
+        Build curr = new Build(splitz.get(0), splitz.get(2), binding, jdk)
 
         prev.downloadBuild()
         prev.install('prev')
