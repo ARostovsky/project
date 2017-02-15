@@ -73,11 +73,11 @@ class Build{
         }
     }
 
-    void install(String toFolder){
+    void install(Path toFolder){
         deleteFolder(toFolder)
         AntBuilder ant = new AntBuilder()
-        ant.mkdir(dir: toFolder)
-        this.folder = Paths.get(toFolder.toString())
+        ant.mkdir(dir: toFolder.toString())
+        this.folder = toFolder
 
         switch (binding.os) {
             case 'win':
@@ -117,7 +117,7 @@ class Build{
         }
     }
 
-    void deleteFolder(String folder=this.folder){
+    void deleteFolder(Path folder=this.folder){
         AntBuilder ant = new AntBuilder()
         ant.delete(dir: folder)
     }
@@ -178,11 +178,11 @@ def main(String dir='patches'){
         Build curr = new Build(splitz.get(0), splitz.get(2), binding, jdk)
 
         prev.downloadBuild()
-        prev.install('prev')
+        prev.install(Paths.get('prev'))
         prev.patch(patch)
 
         curr.downloadBuild()
-        curr.install('curr')
+        curr.install(Paths.get('curr'))
 
         if (prev.checksum != curr.checksum){
             println(sprintf("##teamcity[testFailed name='%s'] message='Checksums are different: %s and %s']",
