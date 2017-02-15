@@ -32,7 +32,7 @@ class Build{
     File log4j
 
 
-    Build(edition, version, binding, jdk=true){
+    Build(String edition, String version, Binding binding, Boolean jdk=true){
         this.edition = edition
         this.version = version
         this.binding = binding
@@ -73,7 +73,7 @@ class Build{
         }
     }
 
-    void install(toFolder){
+    void install(String toFolder){
         deleteFolder(toFolder)
         AntBuilder ant = new AntBuilder()
         ant.mkdir(dir: toFolder)
@@ -108,7 +108,7 @@ class Build{
         calcChecksum()
     }
 
-    void redefineFolder(depth=1){
+    void redefineFolder(int depth=1){
         assert depth > 0
         for (i in 1..depth) {
             this.folder.eachDir { directory ->
@@ -117,12 +117,12 @@ class Build{
         }
     }
 
-    void deleteFolder(folder=this.folder){
+    void deleteFolder(String folder=this.folder){
         AntBuilder ant = new AntBuilder()
         ant.delete(dir: folder)
     }
 
-    void patch(patch){
+    void patch(File patch){
         this.folder.toFile().eachFileRecurse(FileType.FILES) { file ->
             if (file.name.contains('log4j.jar')) {
                 this.log4j = file
@@ -147,10 +147,9 @@ class Build{
 }
 
 
-static findFiles(mask, directory='.') {
-    ArrayList list = []
-    File dir = new File(directory)
-    dir.eachFileRecurse (FileType.FILES) { file ->
+static ArrayList<File> findFiles (String mask, File directory=File('.')) {
+    ArrayList<File> list = []
+    directory.eachFileRecurse (FileType.FILES) { file ->
         if (file.name.contains(mask)) {
             println(file)
             list << file
@@ -159,8 +158,8 @@ static findFiles(mask, directory='.') {
     return list
 }
 
-def main(dir='patches'){
-    ArrayList<File> patches = findFiles(mask='.jar', directory=dir)
+def main(String dir='patches'){
+    ArrayList<File> patches = findFiles(mask='.jar', directory=new File(dir))
     println("##teamcity[enteredTheMatrix]")
     println("##teamcity[testCount count='$patches.size']")
     println("##teamcity[testSuiteStarted name='Patch Update Autotest']")
