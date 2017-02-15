@@ -1,6 +1,8 @@
 import groovy.io.FileType
 import java.nio.file.Path
 import java.nio.file.Paths
+import org.jetbrains.teamcity.rest.*
+
 
 LinkedHashMap<String, String> platformMatrix = ["win": "exe",
                                                 "unix": "tar.gz",
@@ -25,7 +27,6 @@ class Build{
     String checksum
     Path folder
     String edition
-    String id
     String installerName
     String version
     File log4j
@@ -40,25 +41,6 @@ class Build{
                                                       version,
                                                       (jdk) ? '' : '-no-jdk',
                                                       binding.extension])
-    }
-
-    def getId(){
-        if (!this.id){
-            String url = "http://buildserver.labs.intellij.net/guestAuth/app/rest/builds/buildType:$binding.buildType,number:$version/id"
-            this.id = new URL(url).getText()
-        }
-        return this.id
-    }
-
-    def getLog4j(){
-        if (!this.log4j) {
-            this.folder.toFile().eachFileRecurse(FileType.FILES) { file ->
-                if (file.name.contains('log4j.jar')) {
-                    this.log4j = file
-                }
-            }
-        }
-        return this.log4j
     }
 
     void calcChecksum(){
@@ -78,9 +60,16 @@ class Build{
     }
 
     void downloadBuild(){
-        AntBuilder ant = new AntBuilder()
-        ant.get(dest: this.installerName) {
-            url(url: "http://buildserver.labs.intellij.net/guestAuth/repository/download/$binding.buildType/$id:id/$installerName")
+        ArrayList<org.jetbrains.teamcity.rest.Build> builds = TeamCityInstance["Companion"].guestAuth("http://buildserver.labs.intellij.net")
+                .builds()
+                .fromConfiguration(new BuildConfigurationId(binding.buildType))
+                .list()
+        builds.each { build ->
+            if (build.buildNumber == this.version){
+                println(build)
+                build.downloadArtifacts(installerName, new File('.'))
+                return true
+            }
         }
     }
 
@@ -134,6 +123,12 @@ class Build{
     }
 
     void patch(patch){
+        this.folder.toFile().eachFileRecurse(FileType.FILES) { file ->
+            if (file.name.contains('log4j.jar')) {
+                this.log4j = file
+            }
+        }
+
         AntBuilder ant = new AntBuilder()
         org.apache.tools.ant.types.Path classpath = ant.path {
             pathelement(path: patch)

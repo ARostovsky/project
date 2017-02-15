@@ -2,11 +2,19 @@ apply plugin: 'groovy'
 
 repositories {
     mavenCentral()
+    maven {
+        url "http://dl.bintray.com/jetbrains/teamcity-rest-client"
+    }
 }
 
 dependencies {
-    compile 'org.codehaus.groovy:groovy-all:2.4.7'
+    compile 'org.codehaus.groovy:groovy-all:2.4.8'
     compile 'org.apache.ant:ant:1.9.4'
+    if (teamcity_rest_client_version == 'sources') {
+        compile project('../teamcity-rest-client')
+    } else {
+        compile "org.jetbrains.teamcity:teamcity-rest-client:$teamcity_rest_client_version"
+    }
 }
 
 task runScript (dependsOn: 'classes', type: JavaExec) {
