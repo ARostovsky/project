@@ -190,7 +190,7 @@ class Build{
             }
         } else if ( depth > 1 ){
             folder.eachDir { directory ->
-                findBuildFolder(Paths.get(directory.toString()), depth - 1)
+                defineBuildFolder(Paths.get(directory.toString()), depth - 1)
             }
         }
     }
