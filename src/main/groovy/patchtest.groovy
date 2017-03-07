@@ -157,13 +157,14 @@ class Build{
                 ant.exec(executable: "cmd", failonerror: "True") {
                     arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $binding.timeout > nul")
                 }
+                buildFolder = installationFolder
                 break
             case 'unix':
                 ant.gunzip(src: pathToInstaller)
                 this.installerName = installerName[0..-1-".gz".length()]
                 ant.untar(src: this.getInstallerPath(), dest: this.installationFolder)
 
-                findBuildFolder(installationFolder, 1)
+                defineBuildFolder(installationFolder, 1)
                 break
             case 'mac':
                 println("##teamcity[blockOpened name='unzip output']")
@@ -172,14 +173,14 @@ class Build{
                 }
                 println("##teamcity[blockClosed name='unzip output']")
 
-                findBuildFolder(installationFolder, 2)
+                defineBuildFolder(installationFolder, 2)
                 break
             default:
                 throw new RuntimeException(sprintf("Wrong os: $binding.os"))
         }
     }
 
-    void findBuildFolder(Path folder, int depth=1){
+    void defineBuildFolder(Path folder, int depth=1){
         assert depth > 0
         assert Files.list(folder).count() == 1
 
