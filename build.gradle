@@ -21,15 +21,15 @@ task runScript (dependsOn: 'classes', type: JavaExec) {
     main = 'patchtest'
     classpath = sourceSets.main.runtimeClasspath
 
-    def product = project.hasProperty('product') ? project.getProperty('product') : null  // %product%
-    def platform = project.hasProperty('platform') ? project.getProperty('platform') : null   // %platform%
-    def buildType = project.hasProperty('buildType') ? project.getProperty('buildType') : null  // %buildType%
+    def product = project.hasProperty('product') ? project.getProperty('product') : null
+    def platform = project.hasProperty('platform') ? project.getProperty('platform') : null
+    def buildConfigurationID = project.hasProperty('buildConfigurationID') ? project.getProperty('buildConfigurationID') : null
     def timeout = project.hasProperty('timeout') ? project.getProperty('timeout') : '30'
 
-    if (product && platform && buildType){
-        args sprintf("'product':'$product','platform':'$platform','buildType':'$buildType','timeout':'$timeout'")
+    if (product && platform && buildConfigurationID){
+        args sprintf("'product':'$product','platform':'$platform','buildConfigurationID':'$buildConfigurationID','timeout':'$timeout'")
     } else {
-        throw new GradleException("Some args: {product, platform, buildType} are undefined")
+        throw new GradleException("Some args: {product, platform, buildConfigurationID} are undefined")
     }
 
 }
