@@ -158,7 +158,7 @@ class Build{
                     arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $binding.timeout > nul")
                 }
                 break
-            case 'unux':
+            case 'unix':
                 ant.gunzip(src: pathToInstaller)
                 this.installerName = installerName[0..-1-".gz".length()]
                 ant.untar(src: this.getInstallerPath(), dest: this.installationFolder)
@@ -187,7 +187,7 @@ class Build{
             folder.eachDir { directory ->
                 this.buildFolder = Paths.get(directory.toString())
             }
-        } else if ( depth > 2 ){
+        } else if ( depth > 1 ){
             folder.eachDir { directory ->
                 findBuildFolder(Paths.get(directory.toString()), depth - 1)
             }
