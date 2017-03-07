@@ -4,41 +4,58 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import org.jetbrains.teamcity.rest.*
 
+enum OS {
+    WIN,
+    LINUX,
+    MAC
 
-LinkedHashMap<String, String> platformMatrix = ["win": "exe",
-                                                "unix": "tar.gz",
-                                                "mac": "sit"]
+    static fromPatch(String name) {
+        return name == "unix" ? LINUX : valueOf(name)
+    }
+
+    def extension() {
+        switch (this) {
+            case WIN:
+                return "exe"
+            case LINUX:
+                return "tar.gz"
+            case MAC:
+                return "sit"
+        }
+    }
+}
 
 Map<String, String> map = evaluate(Arrays.toString(args)) as Map<String, String>
 println(sprintf("Args: $map"))
 
 /**
- * @value product   Product name, should be specified just like it is specified in installer:
- *                  "pycharm", "idea", "PhpStorm", etc
+ * @value product               Product name, should be specified just like it is specified in installer:
+ *                              "pycharm", "idea", "PhpStorm", etc
+ *
+ * @value os                    enum value of OS, can be OS.WIN, OS.LINUX, OS.MAC
+ *
+ * @value extension             extension value of installer, can be "exe", "tar.gz" or "sit" according to OS
+ *
+ * @value buildConfigurationID  TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm",
+ *                              "ijplatform_master_Idea", "ijplatform_master_PhpStorm", etc.
+ *
+ * @value timeout               Timeout in seconds, used for Windows installation and patching processes.
+ *                              By default it's 30 seconds for Windows installation, but for patching it's multiplied by 2.
+ *                              Can be passed as a parameter via TeamCity for reasons like slow installation or patching in different IDEs.
  */
 product = map.product
-
-os = map.platform
-if (platformMatrix.containsKey(os)){
-    extension = platformMatrix.get(os)
-} else {
-    throw new RuntimeException(sprintf("Wrong os: $map.platform"))
-}
-
-/**
- * @value buildConfigurationID     TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm",
- *                                 "ijplatform_master_Idea", "ijplatform_master_PhpStorm", etc.
- */
+os = OS.fromPatch(map.platform)
+extension = os.extension()
 buildConfigurationID = map.buildConfigurationID
-
-/**
- * @value timeout  Timeout in seconds, used for Windows installation and patching processes.
- *                 By default it's 30 seconds for Windows installation, but for patching it's multiplied by 2.
- *                 Can be passed as a parameter via TeamCity for reasons like slow installation or patching in different IDEs.
- */
 timeout = map.timeout.toInteger()
 
 
+/**
+ * This is a Temp class
+ * Used for dealing with temporary folder, which is defined in folderName param
+ *
+ * @param folderName    Name of temporary folder
+ */
 class Temp{
     static String folderName = 'temp'
 
@@ -50,6 +67,7 @@ class Temp{
         return Paths.get(concatenateWithFolder(folder))
     }
 }
+
 
 /**
  * This is a Build class
@@ -120,7 +138,7 @@ class Build{
         ant.mkdir(dir: this.checksumFolder)
         ant.checksum(todir: this.checksumFolder, totalproperty: 'sum'){
             fileset(dir: this.buildFolder){
-                if (binding.os=='win') {
+                if (binding.os==OS.WIN) {
                     exclude(name: "**\\Uninstall.exe")
                     exclude(name: "**\\classes.jsa")
                 }
@@ -153,20 +171,20 @@ class Build{
         File pathToInstaller = this.getInstallerPath()
 
         switch (binding.os) {
-            case 'win':
+            case OS.WIN:
                 ant.exec(executable: "cmd", failonerror: "True") {
                     arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $binding.timeout > nul")
                 }
                 buildFolder = installationFolder
                 break
-            case 'unix':
+            case OS.LINUX:
                 ant.gunzip(src: pathToInstaller)
                 this.installerName = installerName[0..-1-".gz".length()]
                 ant.untar(src: this.getInstallerPath(), dest: this.installationFolder)
 
                 defineBuildFolder(installationFolder, 1)
                 break
-            case 'mac':
+            case OS.MAC:
                 println("##teamcity[blockOpened name='unzip output']")
                 ant.exec(executable: "unzip", failonerror: "True"){
                     arg(line: "$pathToInstaller -d $installationFolder")
