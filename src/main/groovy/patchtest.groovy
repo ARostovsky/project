@@ -6,7 +6,7 @@ import org.jetbrains.teamcity.rest.*
 
 
 LinkedHashMap<String, String> platformMatrix = ["win": "exe",
-                                                "linux": "tar.gz",
+                                                "unix": "tar.gz",
                                                 "mac": "sit"]
 
 Map<String, String> map = evaluate(Arrays.toString(args)) as Map<String, String>
@@ -158,7 +158,7 @@ class Build{
                     arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $binding.timeout > nul")
                 }
                 break
-            case 'linux':
+            case 'unux':
                 ant.gunzip(src: pathToInstaller)
                 this.installerName = installerName[0..-1-".gz".length()]
                 ant.untar(src: this.getInstallerPath(), dest: this.installationFolder)
