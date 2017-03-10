@@ -10,7 +10,7 @@ enum OS {
     MAC
 
     static fromPatch(String name) {
-        return name == "unix" ? LINUX : valueOf(name.toUpperCase())
+        return name == "unix" ? LINUX : valueOf(name)
     }
 
     def extension() {
@@ -48,65 +48,37 @@ os = OS.fromPatch(map.platform)
 extension = os.extension()
 buildConfigurationID = map.buildConfigurationID
 timeout = map.timeout.toInteger()
-
-
-/**
- * This is a Temp class
- * Used for dealing with temporary folder, which is defined in folderName param
- *
- * @param folderName    Name of temporary folder
- */
-class Temp{
-    static String folderName = 'temp'
-
-    static concatenateWithFolder(String folder){
-        return ((folderName) ? folderName + '/' : '') + folder
-    }
-
-    static pathForConcatenatedWithFolder(String folder){
-        return Paths.get(concatenateWithFolder(folder))
-    }
-}
+tempDirectory = Files.createTempDirectory('patchtest_')
 
 
 /**
  * This is a Build class
  * @param binding               Global variables.
  * @param buildFolder           This is a path to folder, where build is placed. There is a difference with
- *                              installationFolder: buildFolder is a folder where build is stored exactly and
- *                              installationFolder is a folder where build is installed. It can be like:
- *                              <installationFolder> prev
- *                              ..
- *                              └── prev <installationFolder>
+ *                              installation folder: buildFolder is a directory where 'bin', 'lib' and 'plugins' folders
+ *                              are located and installation folder is a folder where build is installed/unpacked by
+ *                              installer or archive manager. It can be like:
+ *                              ...
+ *                              └── prev <installation folder>
  *                                  └── pycharm-172.339 <buildFolder>
  *                                      ├── bin
- *                                      ├── build.txt
- *                                      ├── debug-eggs
- *                                      ├── help
- *                                      ├── helpers
- *                                      ├── Install-Linux-tar.txt
- *                                      ├── jre
  *                                      ├── lib
- *                                      ├── license
- *                                      └── plugins
- * @param checksumFolder        This is a path to folder, where build checksum is counted.
+ *                                      ├── plugins
+ *                                      └── ...
+ *
  * @param edition               Two-letter code like "PC" (PyCharm Community Edition) or "PY" (PyCharm Professional
  *                              edition) should be specified here if any. If there is no editions - empty string
  *                              should be specified then.
- * @param installationFolder    This is folder for build installation. Check buildFolder param for more info.
  * @param installerName         Installer name, like "pycharmPY-171.3566.25.exe" or "pycharmPC-171.3566.25.tar.gz".
  * @param buildNumber           This is a build number, like "171.2342.5" or "171.3566.25".
- * @param log4j                 File 'log4j.jar' that used for patching process.
  */
 class Build{
     Binding binding
     Path buildFolder
-    Path checksumFolder
     String edition
-    Path installationFolder
     String installerName
     String buildNumber
-    File log4j
+    File log4jJar
 
     /**
      * This is a Build constructor
@@ -126,17 +98,18 @@ class Build{
                                                       buildNumber,
                                                       (withBundledJdk) ? '' : '-no-jdk',
                                                       binding.extension])
-        this.checksumFolder = Temp.pathForConcatenatedWithFolder("checksums")
     }
 
-    File getInstallerPath(){
-        return new File((Temp.folderName) ? Temp.folderName as String : '', installerName)
+    File getInstallerPath(String installer=installerName){
+        return new File(binding.tempDirectory.toString(), installer)
     }
 
     String calcChecksum(){
+        Path checksumFolder = Paths.get(binding.tempDirectory.toString(), "checksums")
+
         AntBuilder ant = new AntBuilder()
-        ant.mkdir(dir: this.checksumFolder)
-        ant.checksum(todir: this.checksumFolder, totalproperty: 'sum'){
+        ant.mkdir(dir: checksumFolder)
+        ant.checksum(todir: checksumFolder, totalproperty: 'sum'){
             fileset(dir: this.buildFolder){
                 if (binding.os==OS.WIN) {
                     exclude(name: "**\\Uninstall.exe")
@@ -144,7 +117,7 @@ class Build{
                 }
             }
         }
-        ant.delete(dir: this.checksumFolder)
+        ant.delete(dir: checksumFolder)
         ant.echo("Checksum is $ant.project.properties.sum")
         return ant.project.properties.sum
     }
@@ -164,10 +137,9 @@ class Build{
         }
     }
 
-    void install(Path toFolder){
+    void install(Path installationFolder){
         AntBuilder ant = new AntBuilder()
-        ant.mkdir(dir: toFolder.toString())
-        this.installationFolder = toFolder
+        ant.mkdir(dir: installationFolder.toString())
         File pathToInstaller = this.getInstallerPath()
 
         switch (binding.os) {
@@ -179,8 +151,8 @@ class Build{
                 break
             case OS.LINUX:
                 ant.gunzip(src: pathToInstaller)
-                this.installerName = installerName[0..-1-".gz".length()]
-                ant.untar(src: this.getInstallerPath(), dest: this.installationFolder)
+                String tar = installerName[0..-1-".gz".length()]
+                ant.untar(src: this.getInstallerPath(tar), dest: installationFolder)
 
                 defineBuildFolder(installationFolder, 1)
                 break
@@ -216,17 +188,17 @@ class Build{
     void patch(File patch){
         this.buildFolder.toFile().eachFileRecurse(FileType.FILES) { file ->
             if (file.name.contains('log4j.jar')) {
-                this.log4j = file
+                this.log4jJar = file
             }
         }
-        if (!this.log4j){
+        if (!this.log4jJar){
             throw new RuntimeException("log4j.jar wasn't found")
         }
 
         AntBuilder ant = new AntBuilder()
         org.apache.tools.ant.types.Path classpath = ant.path {
             pathelement(path: patch)
-            pathelement(path: this.log4j)
+            pathelement(path: this.log4jJar)
         }
         ant.java(classpath: "${classpath}",
                 classname: "com.intellij.updater.Runner",
@@ -258,26 +230,26 @@ def main(String dir='patches'){
 
     patches.each { File patch ->
         String patchName = patch.getName()
-        List<String> splitz = patchName.split('-')
+        List<String> partsOfPatchName = patchName.split('-')
 
-        Boolean withBundledJdk = (!patchName.contains('no-jdk'))
-        String testName = sprintf("%s%s edition test, patch name: %s", [splitz.get(0),
+        boolean withBundledJdk = (!patchName.contains('no-jdk'))
+        String testName = sprintf("%s%s edition test, patch name: %s", [partsOfPatchName.get(0),
                                                                         (withBundledJdk) ? '' : ' (no-jdk)',
                                                                         patchName])
         println(sprintf("##teamcity[testStarted name='%s']", testName))
 
         try {
-            Build prev = new Build(splitz.get(0), splitz.get(1), binding, withBundledJdk)
-            Build curr = new Build(splitz.get(0), splitz.get(2), binding, withBundledJdk)
+            Build prev = new Build(partsOfPatchName.get(0), partsOfPatchName.get(1), binding, withBundledJdk)
+            Build curr = new Build(partsOfPatchName.get(0), partsOfPatchName.get(2), binding, withBundledJdk)
 
             prev.downloadBuild()
-            prev.install(Temp.pathForConcatenatedWithFolder('prev'))
+            prev.install(Paths.get(tempDirectory.toString(), "prev"))
             prev.calcChecksum()
             prev.patch(patch)
             String prev_checksum = prev.calcChecksum()
 
             curr.downloadBuild()
-            curr.install(Temp.pathForConcatenatedWithFolder('curr'))
+            curr.install(Paths.get(tempDirectory.toString(), "curr"))
             String curr_checksum = prev.calcChecksum()
 
             if (prev_checksum != curr_checksum){
@@ -291,7 +263,7 @@ def main(String dir='patches'){
         } finally {
             println(sprintf("##teamcity[testFinished name='%s']", testName))
             AntBuilder ant = new AntBuilder()
-            ant.delete(dir: Temp.folderName)
+            ant.delete(dir: tempDirectory.toString())
         }
     }
     println("##teamcity[testSuiteFinished name='Patch Update Autotest']")
