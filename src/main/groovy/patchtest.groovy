@@ -60,12 +60,12 @@ class Installer {
 
     /**
      * This is an Installer constructor
-     * @param edition Two-letter code like "PC" (PyCharm Community Edition) or "PY" (PyCharm Professional
+     * @param edition           Two-letter code like "PC" (PyCharm Community Edition) or "PY" (PyCharm Professional
      *                          edition) should be specified here if any. If there is no editions - empty string
      *                          should be specified then.
-     * @param buildNumber This is a build number, like "171.2342.5".
-     * @param binding Global variables.
-     * @param withBundledJdk Is this build with included jdk or not, default is true.
+     * @param buildNumber       This is a build number, like "171.2342.5".
+     * @param binding           Global variables.
+     * @param withBundledJdk    Is this build with included jdk or not, default is true.
      */
     Installer(String edition, String buildNumber, Binding binding, boolean withBundledJdk = true) {
         this.binding = binding
@@ -156,18 +156,18 @@ class Build {
 
     /**
      * This is a Build constructor
-     * @param buildFolder This is a path to folder, where build is placed. There is a difference with
-     *                              installation folder: buildFolder is a directory where 'bin', 'lib' and 'plugins'
-     *                              folders are located and installation folder is a folder where build is
-     *                              installed/unpacked by installer or archive manager. It can be like:
-     *                              ...
-     *                              └── prev <installation folder>
-     *                                  └── pycharm-172.339 <buildFolder>
-     *                                      ├── bin
-     *                                      ├── lib
-     *                                      ├── plugins
-     *                                      └── ...
-     * @param binding Global variables.
+     * @param buildFolder   This is a path to folder, where build is placed. There is a difference with
+     *                      installation folder: buildFolder is a directory where 'bin', 'lib' and 'plugins'
+     *                      folders are located and installation folder is a folder where build is
+     *                      installed/unpacked by installer or archive manager. It can be like:
+     *                      ...
+     *                      └── prev <installation folder>
+     *                          └── pycharm-172.339 <buildFolder>
+     *                              ├── bin
+     *                              ├── lib
+     *                              ├── plugins
+     *                              └── ...
+     * @param binding       Global variables.
      */
     Build(Path buildFolder, Binding binding) {
         this.buildFolder = buildFolder
