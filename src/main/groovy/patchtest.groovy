@@ -10,7 +10,7 @@ enum OS {
     MAC
 
     static fromPatch(String name) {
-        return name == "unix" ? LINUX : valueOf(name)
+        return name == "unix" ? LINUX : valueOf(name.toUpperCase())
     }
 
     def extension() {
