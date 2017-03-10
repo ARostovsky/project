@@ -1,8 +1,10 @@
 import groovy.io.FileType
+import org.jetbrains.teamcity.rest.*
+
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
-import org.jetbrains.teamcity.rest.*
+import java.util.stream.Collectors
 
 enum OS {
     WIN,
@@ -32,7 +34,7 @@ println(sprintf("Args: $map"))
  * @value product               Product name, should be specified just like it is specified in installer:
  *                              "pycharm", "idea", "PhpStorm", etc
  *
- * @value os                    enum value of OS, can be OS.WIN, OS.LINUX, OS.MAC
+ * @value os {@link OS}
  *
  * @value extension             extension value of installer, can be "exe", "tar.gz" or "sit" according to OS
  *
@@ -51,21 +53,21 @@ timeout = map.timeout.toInteger()
 tempDirectory = Files.createTempDirectory('patchtest_')
 
 
-class Installer{
+class Installer {
     private Binding binding
     String buildNumber
     String installerName
 
     /**
      * This is an Installer constructor
-     * @param edition           Two-letter code like "PC" (PyCharm Community Edition) or "PY" (PyCharm Professional
+     * @param edition Two-letter code like "PC" (PyCharm Community Edition) or "PY" (PyCharm Professional
      *                          edition) should be specified here if any. If there is no editions - empty string
      *                          should be specified then.
-     * @param buildNumber       This is a build number, like "171.2342.5".
-     * @param binding           Global variables.
-     * @param withBundledJdk    Is this build with included jdk or not, default is true.
+     * @param buildNumber This is a build number, like "171.2342.5".
+     * @param binding Global variables.
+     * @param withBundledJdk Is this build with included jdk or not, default is true.
      */
-    Installer(String edition, String buildNumber, Binding binding, boolean withBundledJdk=true){
+    Installer(String edition, String buildNumber, Binding binding, boolean withBundledJdk = true) {
         this.binding = binding
         this.buildNumber = buildNumber
         this.installerName = sprintf('%s%s-%s%s.%s', [binding.product,
@@ -75,18 +77,18 @@ class Installer{
                                                       binding.extension])
     }
 
-    private File getInstallerPath(String installer=installerName){
+    private File getInstallerPath(String installer = installerName) {
         return new File(binding.tempDirectory.toString(), installer)
     }
 
-    private void download(){
+    private void download() {
         ArrayList<org.jetbrains.teamcity.rest.Build> builds = TeamCityInstance["Companion"]
                 .guestAuth("http://buildserver.labs.intellij.net")
                 .builds()
                 .fromConfiguration(new BuildConfigurationId(binding.buildConfigurationID))
                 .list()
         builds.each { build ->
-            if (build.buildNumber == this.buildNumber){
+            if (build.buildNumber == this.buildNumber) {
                 println(build)
                 build.downloadArtifact(installerName, this.getInstallerPath().getAbsoluteFile())
                 return true
@@ -94,7 +96,7 @@ class Installer{
         }
     }
 
-    private Path install(Path installationFolder){
+    private Path install(Path installationFolder) {
         AntBuilder ant = new AntBuilder()
         ant.mkdir(dir: installationFolder.toString())
         File pathToInstaller = this.getInstallerPath()
@@ -107,13 +109,13 @@ class Installer{
                 return installationFolder
             case OS.LINUX:
                 ant.gunzip(src: pathToInstaller)
-                String tar = installerName[0..-1-".gz".length()]
+                String tar = installerName[0..-1 - ".gz".length()]
                 ant.untar(src: this.getInstallerPath(tar), dest: installationFolder)
 
                 return getBuildFolder(installationFolder, 1)
             case OS.MAC:
                 println("##teamcity[blockOpened name='unzip output']")
-                ant.exec(executable: "unzip", failonerror: "True"){
+                ant.exec(executable: "unzip", failonerror: "True") {
                     arg(line: "$pathToInstaller -d $installationFolder")
                 }
                 println("##teamcity[blockClosed name='unzip output']")
@@ -124,29 +126,22 @@ class Installer{
         }
     }
 
-    private Path getBuildFolder(Path folder, int depth=1){
-        assert depth > 0
-        assert Files.list(folder).count() == 1
-        Path buildFolder = null
-
-        if ( depth == 1 ){
-            folder.eachDir { directory ->
-                buildFolder = Paths.get(directory.toString())
-            }
-        } else if ( depth > 1 ){
-            folder.eachDir { directory ->
-                buildFolder = getBuildFolder(Paths.get(directory.toString()), depth - 1)
-            }
+    private Path getBuildFolder(Path folder, int depth = 1) {
+        List<Path> filesInside = Files.list(folder).collect(Collectors.toList())
+        if (filesInside.size() != 1) {
+            throw new IllegalArgumentException(sprintf("Unexpected number of files - %s", filesInside.size()))
         }
 
-        if (!buildFolder){
-            throw new RuntimeException("buildFolder's path wasn't found")
+        if (depth == 1) {
+            return Paths.get(filesInside[0].toString())
+        } else if (depth > 1) {
+            return getBuildFolder(Paths.get(filesInside[0].toString()), depth - 1)
+        } else {
+            throw new IllegalArgumentException(sprintf("depth should be positive - %s", depth))
         }
-
-        return buildFolder
     }
 
-    Build installBuild(Path installationFolder){
+    Build installBuild(Path installationFolder) {
         download()
         Path buildFolder = install(installationFolder)
         return new Build(buildFolder, binding)
@@ -155,16 +150,16 @@ class Installer{
 }
 
 
-class Build{
+class Build {
     private Binding binding
     Path buildFolder
 
     /**
      * This is a Build constructor
-     * @param buildFolder           This is a path to folder, where build is placed. There is a difference with
-     *                              installation folder: buildFolder is a directory where 'bin', 'lib' and 'plugins' folders
-     *                              are located and installation folder is a folder where build is installed/unpacked by
-     *                              installer or archive manager. It can be like:
+     * @param buildFolder This is a path to folder, where build is placed. There is a difference with
+     *                              installation folder: buildFolder is a directory where 'bin', 'lib' and 'plugins'
+     *                              folders are located and installation folder is a folder where build is
+     *                              installed/unpacked by installer or archive manager. It can be like:
      *                              ...
      *                              └── prev <installation folder>
      *                                  └── pycharm-172.339 <buildFolder>
@@ -172,21 +167,21 @@ class Build{
      *                                      ├── lib
      *                                      ├── plugins
      *                                      └── ...
-     * @param binding               Global variables.
+     * @param binding Global variables.
      */
-    Build(Path buildFolder, Binding binding){
+    Build(Path buildFolder, Binding binding) {
         this.buildFolder = buildFolder
         this.binding = binding
     }
 
-    String calcChecksum(){
+    String calcChecksum() {
         Path checksumFolder = Paths.get(binding.tempDirectory.toString(), "checksums")
 
         AntBuilder ant = new AntBuilder()
         ant.mkdir(dir: checksumFolder)
-        ant.checksum(todir: checksumFolder, totalproperty: 'sum'){
-            fileset(dir: this.buildFolder){
-                if (binding.os==OS.WIN) {
+        ant.checksum(todir: checksumFolder, totalproperty: 'sum') {
+            fileset(dir: this.buildFolder) {
+                if (binding.os == OS.WIN) {
                     exclude(name: "**\\Uninstall.exe")
                     exclude(name: "**\\classes.jsa")
                 }
@@ -197,14 +192,14 @@ class Build{
         return ant.project.properties.sum
     }
 
-    void patch(File patch){
+    void patch(File patch) {
         File log4jJar = null
         buildFolder.toFile().eachFileRecurse(FileType.FILES) { file ->
             if (file.name.contains('log4j.jar')) {
                 log4jJar = file
             }
         }
-        if (!log4jJar){
+        if (!log4jJar) {
             throw new RuntimeException("log4j.jar wasn't found")
         }
 
@@ -217,16 +212,16 @@ class Build{
                 classname: "com.intellij.updater.Runner",
                 fork: "true",
                 maxmemory: "800m",
-                timeout: binding.timeout * 2000){
+                timeout: binding.timeout * 2000) {
             arg(line: "install '$buildFolder'")
         }
     }
 }
 
 
-static ArrayList<File> findFiles (String mask, File directory=File('.')) {
+static ArrayList<File> findFiles(String mask, File directory = File('.')) {
     ArrayList<File> list = []
-    directory.eachFileRecurse (FileType.FILES) { file ->
+    directory.eachFileRecurse(FileType.FILES) { file ->
         if (file.name.contains(mask)) {
             println(file)
             list << file
@@ -235,8 +230,8 @@ static ArrayList<File> findFiles (String mask, File directory=File('.')) {
     return list
 }
 
-def main(String dir='patches'){
-    ArrayList<File> patches = findFiles(mask='.jar', directory=new File(dir))
+def main(String dir = 'patches') {
+    ArrayList<File> patches = findFiles(mask = '.jar', directory = new File(dir))
     println("##teamcity[enteredTheMatrix]")
     println("##teamcity[testCount count='$patches.size']")
     println("##teamcity[testSuiteStarted name='Patch Update Autotest']")
@@ -262,7 +257,7 @@ def main(String dir='patches'){
             Build currBuild = currInstaller.installBuild(Paths.get(tempDirectory.toString(), "curr"))
             String currChecksum = currBuild.calcChecksum()
 
-            if (prevChecksum != currChecksum){
+            if (prevChecksum != currChecksum) {
                 println(sprintf("##teamcity[testFailed name='%s'] message='Checksums are different: %s and %s']",
                         [testName, prevChecksum, currChecksum]))
             }
