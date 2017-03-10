@@ -75,7 +75,7 @@ class Installer{
                                                       binding.extension])
     }
 
-    File getInstallerPath(String installer=installerName){
+    private File getInstallerPath(String installer=installerName){
         return new File(binding.tempDirectory.toString(), installer)
     }
 
@@ -155,14 +155,12 @@ class Installer{
 }
 
 
-
 class Build{
     private Binding binding
     Path buildFolder
-    private File log4jJar
 
     /**
-     * This is a Build class
+     * This is a Build constructor
      * @param buildFolder           This is a path to folder, where build is placed. There is a difference with
      *                              installation folder: buildFolder is a directory where 'bin', 'lib' and 'plugins' folders
      *                              are located and installation folder is a folder where build is installed/unpacked by
@@ -179,7 +177,6 @@ class Build{
     Build(Path buildFolder, Binding binding){
         this.buildFolder = buildFolder
         this.binding = binding
-
     }
 
     String calcChecksum(){
@@ -201,19 +198,20 @@ class Build{
     }
 
     void patch(File patch){
+        File log4jJar = null
         buildFolder.toFile().eachFileRecurse(FileType.FILES) { file ->
             if (file.name.contains('log4j.jar')) {
-                this.log4jJar = file
+                log4jJar = file
             }
         }
-        if (!this.log4jJar){
+        if (!log4jJar){
             throw new RuntimeException("log4j.jar wasn't found")
         }
 
         AntBuilder ant = new AntBuilder()
         org.apache.tools.ant.types.Path classpath = ant.path {
             pathelement(path: patch)
-            pathelement(path: this.log4jJar)
+            pathelement(path: log4jJar)
         }
         ant.java(classpath: "${classpath}",
                 classname: "com.intellij.updater.Runner",
