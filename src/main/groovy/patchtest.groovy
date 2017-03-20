@@ -274,7 +274,7 @@ def main(String dir = 'patches') {
         String testName = sprintf("%s %s%s %s test, patch name: %s", [product,
                                                                       edition,
                                                                       (withBundledJdk) ? '' : ' (no-jdk)',
-                                                                      (edition || withBundledJdk) ? 'edition' : '',
+                                                                      (edition || !withBundledJdk) ? 'edition' : '',
                                                                       patchName])
         println(sprintf("##teamcity[testStarted name='%s']", testName))
 
