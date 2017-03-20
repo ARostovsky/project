@@ -38,7 +38,7 @@ println(sprintf("Args: $map"))
  *
  * @value extension             extension value of installer, can be "exe", "tar.gz" or "sit" according to OS
  *
- * @value buildConfigurationID  TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm",
+ * @value buildConfigurationIDs List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm",
  *                              "ijplatform_master_Idea", "ijplatform_master_PhpStorm", etc.
  *
  * @value timeout               Timeout in seconds, used for Windows installation and patching processes.
@@ -52,7 +52,7 @@ println(sprintf("Args: $map"))
 product = map.product
 os = OS.fromPatch(map.platform)
 extension = os.extension()
-buildConfigurationID = map.buildConfigurationID
+buildConfigurationIDs = map.buildConfigurationID.split(';')
 timeout = map.timeout.toInteger()
 out = Paths.get(map.out)
 tempDirectory = Files.createTempDirectory('patchtest_')
@@ -65,14 +65,14 @@ class Installer {
 
     /**
      * This is an Installer constructor
-     * @param edition           Two-letter code like "PC" (PyCharm Community Edition) or "PY" (PyCharm Professional
-     *                          edition) should be specified here if any. If there is no editions - empty string
-     *                          should be specified then.
      * @param buildNumber       This is a build number, like "171.2342.5".
+     * @param edition           Two-letter code like "PC" (PyCharm Community Edition) or "PY" (PyCharm Professional
+     *                          edition) should be specified here if product has more than 1 configuration.
+     *                          If there is no editions - empty string should be specified then.
      * @param binding           Global variables.
      * @param withBundledJdk    Is this build with included jdk or not, default is true.
      */
-    Installer(String edition, String buildNumber, Binding binding, boolean withBundledJdk = true) {
+    Installer(String buildNumber, String edition, Binding binding, boolean withBundledJdk = true) {
         this.binding = binding
         this.buildNumber = buildNumber
         this.installerName = sprintf('%s%s-%s%s.%s', [binding.product,
@@ -87,22 +87,32 @@ class Installer {
     }
 
     private void download() {
-        ArrayList<org.jetbrains.teamcity.rest.Build> builds = TeamCityInstance["Companion"]
-                .guestAuth("http://buildserver.labs.intellij.net")
-                .builds()
-                .fromConfiguration(new BuildConfigurationId(binding.buildConfigurationID))
-                .list()
-        builds.each { build ->
-            if (build.buildNumber == this.buildNumber) {
-                println(build)
-                build.downloadArtifact(installerName, this.getInstallerPath().getAbsoluteFile())
-                return true
+        binding.buildConfigurationIDs.each { String buildConfigurationID ->
+            ArrayList<org.jetbrains.teamcity.rest.Build> builds = TeamCityInstance["Companion"]
+                    .guestAuth("http://buildserver.labs.intellij.net")
+                    .builds()
+                    .fromConfiguration(new BuildConfigurationId(buildConfigurationID))
+                    .list()
+            builds.each { build ->
+                if (build.buildNumber == this.buildNumber) {
+                    println("\n" + build.toString())
+                    AntBuilder ant = new AntBuilder()
+                    String installerPattern = installerName.replace(this.buildNumber, '*')
+
+                    ant.echo("Searching for artifact with $installerPattern pattern")
+                    BuildArtifact artifact = build.findArtifact(installerPattern, "")
+
+                    ant.echo("Found $artifact.fileName, downloading")
+                    artifact.download(this.getInstallerPath().getAbsoluteFile())
+                    return true
+                }
             }
         }
     }
 
     private Path install(Path installationFolder) {
         AntBuilder ant = new AntBuilder()
+        println('')
         ant.echo("Installing $installerName")
         ant.mkdir(dir: installationFolder.toString())
         File pathToInstaller = this.getInstallerPath()
@@ -255,21 +265,27 @@ def main(String dir = 'patches') {
     patches.each { File patch ->
         String patchName = patch.getName()
         List<String> partsOfPatchName = patchName.split('-')
-
         boolean withBundledJdk = (!patchName.contains('no-jdk'))
-        String testName = sprintf("%s%s edition test, patch name: %s", [partsOfPatchName.get(0),
-                                                                        (withBundledJdk) ? '' : ' (no-jdk)',
-                                                                        patchName])
+
+        String edition = partsOfPatchName.get(0)
+        edition = edition in ['IC', 'IU', 'PC', 'PY'] ? edition : ''
+
+        String product = binding.product.substring(0, 1).toUpperCase() + binding.product.substring(1)
+        String testName = sprintf("%s %s%s %s test, patch name: %s", [product,
+                                                                      edition,
+                                                                      (withBundledJdk) ? '' : ' (no-jdk)',
+                                                                      (edition || withBundledJdk) ? 'edition' : '',
+                                                                      patchName])
         println(sprintf("##teamcity[testStarted name='%s']", testName))
 
         try {
-            Installer prevInstaller = new Installer(partsOfPatchName.get(0), partsOfPatchName.get(1), binding, withBundledJdk)
+            Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, binding, withBundledJdk)
             Build prevBuild = prevInstaller.installBuild(Paths.get(tempDirectory.toString(), "prev"))
             prevBuild.calcChecksum()
             prevBuild.patch(patch)
             String prevChecksum = prevBuild.calcChecksum()
 
-            Installer currInstaller = new Installer(partsOfPatchName.get(0), partsOfPatchName.get(2), binding, withBundledJdk)
+            Installer currInstaller = new Installer(partsOfPatchName.get(2), edition, binding, withBundledJdk)
             Build currBuild = currInstaller.installBuild(Paths.get(tempDirectory.toString(), "curr"))
             String currChecksum = currBuild.calcChecksum()
 
