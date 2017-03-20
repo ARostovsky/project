@@ -124,7 +124,7 @@ class Installer {
                 return regex
             }
         }
-        throw new RuntimeException("Didn't find suitable installer [$installerName, $regex] in artifacts: $artifacts")
+        throw new RuntimeException("Didn't find suitable installer in artifacts: $artifacts")
     }
 
     private Path install(Path installationFolder) {
@@ -220,6 +220,7 @@ class Build {
                     exclude(name: "**\\Uninstall.exe")
                     exclude(name: "**\\classes.jsa")
                 }
+                exclude(name: "**\\*.dylib")
             }
         }
         ant.delete(dir: checksumFolder)
