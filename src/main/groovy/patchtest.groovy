@@ -87,6 +87,7 @@ class Installer {
     }
 
     private void download() {
+        BuildArtifact artifact = null
         binding.buildConfigurationIDs.each { String buildConfigurationID ->
             ArrayList<org.jetbrains.teamcity.rest.Build> builds = TeamCityInstance["Companion"]
                     .guestAuth("http://buildserver.labs.intellij.net")
@@ -94,20 +95,36 @@ class Installer {
                     .fromConfiguration(new BuildConfigurationId(buildConfigurationID))
                     .list()
             builds.each { build ->
-                if (build.buildNumber == this.buildNumber) {
+                if (build.buildNumber == buildNumber) {
                     println("\n" + build.toString())
-                    AntBuilder ant = new AntBuilder()
-                    String installerPattern = installerName.replace(this.buildNumber, '*')
 
-                    ant.echo("Searching for artifact with $installerPattern pattern")
-                    BuildArtifact artifact = build.findArtifact(installerPattern, "")
+                    List<BuildArtifact> artifacts = build.getArtifacts("")
+                    String artifactNamePattern = getArtifactNamePattern(artifacts)
+                    artifact = artifacts.findAll { it.fileName =~ artifactNamePattern }[0]
 
-                    ant.echo("Found $artifact.fileName, downloading")
-                    artifact.download(this.getInstallerPath().getAbsoluteFile())
+                    new AntBuilder().echo("Found $artifact.fileName, downloading")
+                    artifact.download(getInstallerPath().getAbsoluteFile())
                     return true
                 }
             }
         }
+        if (!artifact) {
+            throw new RuntimeException("Didn't find suitable build $buildNumber in configurations: $binding.buildConfigurationIDs")
+        }
+    }
+
+    private String getArtifactNamePattern(List<BuildArtifact> artifacts) {
+        if (artifacts.count { it.fileName =~ installerName } == 1) {
+            return installerName
+        } else {
+            String regex = installerName.replace(buildNumber, '.[\\d.]+')
+            new AntBuilder().echo("Searching for artifact with $regex pattern")
+
+            if (artifacts.count { it.fileName =~ regex } == 1) {
+                return regex
+            }
+        }
+        throw new RuntimeException("Didn't find suitable installer [$installerName, $regex] in artifacts: $artifacts")
     }
 
     private Path install(Path installationFolder) {
@@ -115,7 +132,7 @@ class Installer {
         println('')
         ant.echo("Installing $installerName")
         ant.mkdir(dir: installationFolder.toString())
-        File pathToInstaller = this.getInstallerPath()
+        File pathToInstaller = getInstallerPath()
 
         switch (binding.os) {
             case OS.WIN:
@@ -126,7 +143,7 @@ class Installer {
             case OS.LINUX:
                 ant.gunzip(src: pathToInstaller)
                 String tar = installerName[0..-1 - ".gz".length()]
-                ant.untar(src: this.getInstallerPath(tar), dest: installationFolder)
+                ant.untar(src: getInstallerPath(tar), dest: installationFolder)
 
                 return getBuildFolder(installationFolder, 1)
             case OS.MAC:
@@ -198,7 +215,7 @@ class Build {
         ant.echo("Calculating checksum")
         ant.mkdir(dir: checksumFolder)
         ant.checksum(todir: checksumFolder, totalproperty: 'sum') {
-            fileset(dir: this.buildFolder) {
+            fileset(dir: buildFolder) {
                 if (binding.os == OS.WIN) {
                     exclude(name: "**\\Uninstall.exe")
                     exclude(name: "**\\classes.jsa")
@@ -271,11 +288,11 @@ def main(String dir = 'patches') {
         edition = edition in ['IC', 'IU', 'PC', 'PY'] ? edition : ''
 
         String product = binding.product.substring(0, 1).toUpperCase() + binding.product.substring(1)
-        String testName = sprintf("%s %s%s %s test, patch name: %s", [product,
-                                                                      edition,
-                                                                      (withBundledJdk) ? '' : ' (no-jdk)',
-                                                                      (edition || !withBundledJdk) ? 'edition' : '',
-                                                                      patchName])
+        String testName = sprintf("%s %s%s%s test, patch name: %s", [product,
+                                                                     edition,
+                                                                     (withBundledJdk) ? '' : ' (no-jdk)',
+                                                                     (edition || !withBundledJdk) ? ' edition' : '',
+                                                                     patchName])
         println(sprintf("##teamcity[testStarted name='%s']", testName))
 
         try {
@@ -299,8 +316,7 @@ def main(String dir = 'patches') {
             e.printStackTrace()
         } finally {
             println(sprintf("##teamcity[testFinished name='%s']", testName))
-            AntBuilder ant = new AntBuilder()
-            ant.delete(dir: tempDirectory.toString())
+            new AntBuilder().delete(dir: tempDirectory.toString())
         }
     }
     println("##teamcity[testSuiteFinished name='Patch Update Autotest']")
