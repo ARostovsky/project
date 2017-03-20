@@ -45,12 +45,16 @@ println(sprintf("Args: $map"))
  *                              By default it's 60 seconds for Windows installation, but for patching it's multiplied
  *                              by 3. Can be passed as a parameter via TeamCity for reasons like slow installation or
  *                              patching in different IDEs.
+ *
+ * @value out                   Folder for artifacts that should be saved after test. Used for store patch logs.
+ *
  */
 product = map.product
 os = OS.fromPatch(map.platform)
 extension = os.extension()
 buildConfigurationID = map.buildConfigurationID
 timeout = map.timeout.toInteger()
+out = Paths.get(map.out)
 tempDirectory = Files.createTempDirectory('patchtest_')
 
 
@@ -99,9 +103,9 @@ class Installer {
 
     private Path install(Path installationFolder) {
         AntBuilder ant = new AntBuilder()
+        ant.echo("Installing $installerName")
         ant.mkdir(dir: installationFolder.toString())
         File pathToInstaller = this.getInstallerPath()
-        ant.echo("Installing $installerName")
 
         switch (binding.os) {
             case OS.WIN:
@@ -180,6 +184,8 @@ class Build {
         Path checksumFolder = Paths.get(binding.tempDirectory.toString(), "checksums")
 
         AntBuilder ant = new AntBuilder()
+        println('')
+        ant.echo("Calculating checksum")
         ant.mkdir(dir: checksumFolder)
         ant.checksum(todir: checksumFolder, totalproperty: 'sum') {
             fileset(dir: this.buildFolder) {
@@ -206,18 +212,25 @@ class Build {
         }
 
         AntBuilder ant = new AntBuilder()
+        println('')
         ant.echo("Applying patch $patch.name")
+        Path out = Paths.get(binding.out.toString(), patch.name)
+        ant.mkdir(dir: out)
+
         org.apache.tools.ant.types.Path classpath = ant.path {
             pathelement(path: patch)
             pathelement(path: log4jJar)
         }
         ant.java(classpath: "${classpath}",
-                classname: "com.intellij.updater.Runner",
-                fork: "true",
-                maxmemory: "800m",
-                timeout: binding.timeout * 3000) {
+                 classname: "com.intellij.updater.Runner",
+                 fork: "true",
+                 maxmemory: "800m",
+                 timeout: binding.timeout * 3000) {
+            jvmarg(value: "-Didea.updater.log=$out")
             arg(line: "install '$buildFolder'")
         }
+        ant.echo("Message 'Java Result: 42' is OK, because this error is thrown from GUI " +
+                 "and it means that IDE restart is needed")
     }
 }
 
