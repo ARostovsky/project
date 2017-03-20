@@ -24,7 +24,7 @@ task runScript (dependsOn: 'classes', type: JavaExec) {
     def product = project.hasProperty('product') ? project.getProperty('product') : null
     def platform = project.hasProperty('platform') ? project.getProperty('platform') : null
     def buildConfigurationID = project.hasProperty('buildConfigurationID') ? project.getProperty('buildConfigurationID') : null
-    def timeout = project.hasProperty('timeout') ? project.getProperty('timeout') : '30'
+    def timeout = project.hasProperty('timeout') ? project.getProperty('timeout') : '60'
 
     if (product && platform && buildConfigurationID){
         args sprintf("'product':'$product','platform':'$platform','buildConfigurationID':'$buildConfigurationID','timeout':'$timeout'")

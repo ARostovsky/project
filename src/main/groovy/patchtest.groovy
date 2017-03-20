@@ -42,8 +42,9 @@ println(sprintf("Args: $map"))
  *                              "ijplatform_master_Idea", "ijplatform_master_PhpStorm", etc.
  *
  * @value timeout               Timeout in seconds, used for Windows installation and patching processes.
- *                              By default it's 30 seconds for Windows installation, but for patching it's multiplied by 2.
- *                              Can be passed as a parameter via TeamCity for reasons like slow installation or patching in different IDEs.
+ *                              By default it's 60 seconds for Windows installation, but for patching it's multiplied
+ *                              by 3. Can be passed as a parameter via TeamCity for reasons like slow installation or
+ *                              patching in different IDEs.
  */
 product = map.product
 os = OS.fromPatch(map.platform)
@@ -100,6 +101,7 @@ class Installer {
         AntBuilder ant = new AntBuilder()
         ant.mkdir(dir: installationFolder.toString())
         File pathToInstaller = this.getInstallerPath()
+        ant.echo("Installing $installerName")
 
         switch (binding.os) {
             case OS.WIN:
@@ -204,6 +206,7 @@ class Build {
         }
 
         AntBuilder ant = new AntBuilder()
+        ant.echo("Applying patch $patch.name")
         org.apache.tools.ant.types.Path classpath = ant.path {
             pathelement(path: patch)
             pathelement(path: log4jJar)
@@ -212,7 +215,7 @@ class Build {
                 classname: "com.intellij.updater.Runner",
                 fork: "true",
                 maxmemory: "800m",
-                timeout: binding.timeout * 2000) {
+                timeout: binding.timeout * 3000) {
             arg(line: "install '$buildFolder'")
         }
     }
