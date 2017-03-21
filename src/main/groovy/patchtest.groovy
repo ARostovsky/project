@@ -60,7 +60,7 @@ tempDirectory = Files.createTempDirectory('patchtest_')
 
 class WrongConfigurationException extends RuntimeException
 {
-    private WrongConfigurationException(String message)
+    WrongConfigurationException(String message)
     {
         super(message);
     }
