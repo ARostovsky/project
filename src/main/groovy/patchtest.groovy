@@ -118,7 +118,7 @@ class Installer {
             }
         }
         if (!artifact) {
-            throw new WrongConfigurationException("Didn't find suitable build $buildNumber in configurations: $binding.buildConfigurationIDs")
+            throw new WrongConfigurationException("Didn't find build №$buildNumber in configurations: $binding.buildConfigurationIDs")
         }
     }
 
