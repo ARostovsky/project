@@ -297,7 +297,8 @@ def main(String dir = 'patches') {
         boolean withBundledJdk = (!patchName.contains('no-jdk'))
 
         String edition = partsOfPatchName.get(0)
-        edition = edition in ['IC', 'IU', 'PC', 'PY'] ? edition : ''
+        edition = edition in ['IC', 'IU', 'PC', 'PY', 'PE'] ? edition : ''
+        edition = (edition == 'PE') ? 'EDU' : ''
 
         String product = binding.product.substring(0, 1).toUpperCase() + binding.product.substring(1)
         String testName = sprintf("%s %s%s%s test, patch name: %s", [product,
