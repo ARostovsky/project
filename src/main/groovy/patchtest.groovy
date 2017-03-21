@@ -330,8 +330,8 @@ def main(String dir = 'patches') {
             println(sprintf("##teamcity[testFailed name='%s'] message='%s']", [testName, e]))
             e.printStackTrace()
         } finally {
-            println(sprintf("##teamcity[testFinished name='%s']", testName))
             new AntBuilder().delete(dir: tempDirectory.toString())
+            println(sprintf("##teamcity[testFinished name='%s']", testName))
         }
     }
     println("##teamcity[testSuiteFinished name='Patch Update Autotest']")
