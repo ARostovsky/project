@@ -18,7 +18,7 @@ enum OS {
     def extension() {
         switch (this) {
             case WIN:
-                return "exe"
+                return "zip" //"exe"
             case LINUX:
                 return "tar.gz"
             case MAC:
@@ -118,7 +118,7 @@ class Installer {
             return installerName
         } else {
             String regex = installerName.replace(buildNumber, '.[\\d.]+')
-            new AntBuilder().echo("Searching for artifact with $regex pattern")
+            new AntBuilder().echo("Searching for artifact with $regex regex")
 
             if (artifacts.count { it.fileName =~ regex } == 1) {
                 return regex
@@ -136,9 +136,11 @@ class Installer {
 
         switch (binding.os) {
             case OS.WIN:
-                ant.exec(executable: "cmd", failonerror: "True") {
-                    arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $binding.timeout > nul")
-                }
+//                This is code for 'exe' installers
+//                ant.exec(executable: "cmd", failonerror: "True") {
+//                    arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $binding.timeout > nul")
+//                }
+                ant.unzip(src: pathToInstaller, dest: installationFolder)
                 return installationFolder
             case OS.LINUX:
                 ant.gunzip(src: pathToInstaller)
@@ -155,7 +157,7 @@ class Installer {
 
                 return getBuildFolder(installationFolder, 2)
             default:
-                throw new RuntimeException(sprintf("Wrong os: $binding.os"))
+                throw new IllegalArgumentException(sprintf("Wrong os: $binding.os"))
         }
     }
 
