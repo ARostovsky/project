@@ -41,7 +41,7 @@ println(sprintf("Args: $map"))
  * @value buildConfigurationIDs List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm",
  *                              "ijplatform_master_Idea", "ijplatform_master_PhpStorm", etc.
  *
- * @value timeout               Timeout in seconds, used for Windows installation and patching processes.
+ * @value timeout               Timeout in seconds, used for Windows installation (using .exe) and patching processes.
  *                              By default it's 60 seconds for Windows installation, but for patching it's multiplied
  *                              by 3. Can be passed as a parameter via TeamCity for reasons like slow installation or
  *                              patching in different IDEs.
@@ -56,6 +56,15 @@ buildConfigurationIDs = map.buildConfigurationID.split(';')
 timeout = map.timeout.toInteger()
 out = Paths.get(map.out)
 tempDirectory = Files.createTempDirectory('patchtest_')
+
+
+class WrongConfigurationException extends RuntimeException
+{
+    private WrongConfigurationException(String message)
+    {
+        super(message);
+    }
+}
 
 
 class Installer {
@@ -109,7 +118,7 @@ class Installer {
             }
         }
         if (!artifact) {
-            throw new RuntimeException("Didn't find suitable build $buildNumber in configurations: $binding.buildConfigurationIDs")
+            throw new WrongConfigurationException("Didn't find suitable build $buildNumber in configurations: $binding.buildConfigurationIDs")
         }
     }
 
@@ -136,7 +145,7 @@ class Installer {
 
         switch (binding.os) {
             case OS.WIN:
-//                This is code for 'exe' installers
+//                This is a code for 'exe' installers
 //                ant.exec(executable: "cmd", failonerror: "True") {
 //                    arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $binding.timeout > nul")
 //                }
@@ -314,8 +323,11 @@ def main(String dir = 'patches') {
                         [testName, prevChecksum, currChecksum]))
             }
         }
-        catch (e) {
-            println(sprintf("##teamcity[testFailed name='%s'] message='Exception: %s']", [testName, e]))
+        catch (WrongConfigurationException e) {
+            println(sprintf("##teamcity[testIgnored name='%s'] message='Check your build configuration: %s']", [testName, e.message]))
+        }
+        catch (e){
+            println(sprintf("##teamcity[testFailed name='%s'] message='%s']", [testName, e]))
             e.printStackTrace()
         } finally {
             println(sprintf("##teamcity[testFinished name='%s']", testName))
