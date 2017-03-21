@@ -298,7 +298,7 @@ def main(String dir = 'patches') {
 
         String edition = partsOfPatchName.get(0)
         edition = edition in ['IC', 'IU', 'PC', 'PY', 'PE'] ? edition : ''
-        edition = (edition == 'PE') ? 'EDU' : ''
+        edition = (edition == 'PE') ? 'EDU' : edition
 
         String product = binding.product.substring(0, 1).toUpperCase() + binding.product.substring(1)
         String testName = sprintf("%s %s%s%s test, patch name: %s", [product,
