@@ -123,6 +123,9 @@ class Installer {
     }
 
     private String getArtifactNamePattern(List<BuildArtifact> artifacts) {
+        if (installerName.contains('idea') && binding.os == OS.WIN) {
+            installerName = installerName.replace('zip', 'win.zip')
+        }
         if (artifacts.count { it.fileName =~ installerName } == 1) {
             return installerName
         } else {
@@ -242,7 +245,7 @@ class Build {
     void patch(File patch) {
         File log4jJar = null
         buildFolder.toFile().eachFileRecurse(FileType.FILES) { file ->
-            if (file.name.contains('log4j.jar')) {
+            if (file.name == 'log4j.jar') {
                 log4jJar = file
             }
         }
