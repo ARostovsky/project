@@ -53,7 +53,7 @@ println(sprintf("Args: $map"))
  */
 product = map.product
 os = OS.fromPatch(map.platform)
-winExtension =  map.winExtension
+winExtension =  map.winExtension in ['zip', 'exe'] ? map.winExtension : 'zip'
 extension = os.extension(binding)
 buildConfigurationIDs = map.buildConfigurationID.split(';')
 timeout = map.timeout.toInteger()
