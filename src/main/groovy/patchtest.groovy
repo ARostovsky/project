@@ -36,9 +36,9 @@ println(sprintf("Args: $map"))
  *
  * @value os {@link OS}
  *
- * @value winExtension          Extension for windows installers, can be "zip" (by default) or "exe"
+ * @value winExtension          Extension for Windows installers, can be "zip" (by default), "exe" or 'win.zip' (idea)
  *
- * @value extension             Extension value of installer, can be "exe"/"zip", "tar.gz" or "sit" according to OS
+ * @value extension             Extension value of installer, can be "exe"/"zip"(win.zip), "tar.gz" or "sit" according to OS
  *
  * @value buildConfigurationIDs List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm",
  *                              "ijplatform_master_Idea", "ijplatform_master_PhpStorm", etc.
@@ -53,7 +53,7 @@ println(sprintf("Args: $map"))
  */
 product = map.product
 os = OS.fromPatch(map.platform)
-winExtension =  map.winExtension in ['zip', 'exe'] ? map.winExtension : 'zip'
+winExtension =  map.winExtension in ['zip', 'exe', 'win.zip'] ? map.winExtension : 'zip'
 extension = os.extension(binding)
 buildConfigurationIDs = map.buildConfigurationID.split(';')
 timeout = map.timeout.toInteger()
@@ -126,9 +126,6 @@ class Installer {
     }
 
     private String getArtifactNamePattern(List<BuildArtifact> artifacts) {
-        if (installerName.contains('idea') && binding.os == OS.WIN) {
-            installerName = installerName.replace('zip', 'win.zip')
-        }
         if (artifacts.count { it.fileName =~ installerName } == 1) {
             return installerName
         } else {
