@@ -26,13 +26,15 @@ task runScript (dependsOn: 'classes', type: JavaExec) {
     def buildConfigurationID = project.hasProperty('buildConfigurationID') ? project.getProperty('buildConfigurationID') : null
     def timeout = project.hasProperty('timeout') ? project.getProperty('timeout') : '60'
     def out = project.hasProperty('out') ? project.getProperty('out') : 'out'
+    def winExtension = project.hasProperty('winExtension') ? project.getProperty('winExtension') : 'zip'
 
     if (product && platform && buildConfigurationID){
         args sprintf("'product':'$product'," +
                      "'platform':'$platform'," +
                      "'buildConfigurationID':'$buildConfigurationID'," +
                      "'timeout':'$timeout'," +
-                     "'out':'$out'")
+                     "'out':'$out'," +
+                     "'winExtension':'$winExtension'")
     } else {
         throw new GradleException("Some args: {product, platform, buildConfigurationID} are undefined")
     }

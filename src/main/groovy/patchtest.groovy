@@ -15,10 +15,10 @@ enum OS {
         return name == "unix" ? LINUX : valueOf(name.toUpperCase())
     }
 
-    def extension() {
+    def extension(binding) {
         switch (this) {
             case WIN:
-                return "zip" //"exe"
+                return binding.winExtension
             case LINUX:
                 return "tar.gz"
             case MAC:
@@ -36,7 +36,9 @@ println(sprintf("Args: $map"))
  *
  * @value os {@link OS}
  *
- * @value extension             extension value of installer, can be "exe", "tar.gz" or "sit" according to OS
+ * @value winExtension          Extension for windows installers, can be "zip" (by default) or "exe"
+ *
+ * @value extension             Extension value of installer, can be "exe"/"zip", "tar.gz" or "sit" according to OS
  *
  * @value buildConfigurationIDs List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm",
  *                              "ijplatform_master_Idea", "ijplatform_master_PhpStorm", etc.
@@ -51,7 +53,8 @@ println(sprintf("Args: $map"))
  */
 product = map.product
 os = OS.fromPatch(map.platform)
-extension = os.extension()
+winExtension =  map.winExtension
+extension = os.extension(binding)
 buildConfigurationIDs = map.buildConfigurationID.split(';')
 timeout = map.timeout.toInteger()
 out = Paths.get(map.out)
@@ -145,11 +148,15 @@ class Installer {
 
         switch (binding.os) {
             case OS.WIN:
-//                This is a code for 'exe' installers
-//                ant.exec(executable: "cmd", failonerror: "True") {
-//                    arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $binding.timeout > nul")
-//                }
-                ant.unzip(src: pathToInstaller, dest: installationFolder)
+                if (binding.extension == 'exe') {
+                    ant.exec(executable: "cmd", failonerror: "True") {
+                        arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $binding.timeout > nul")
+                    }
+                } else if (binding.extension.contains('zip')) {
+                    ant.unzip(src: pathToInstaller, dest: installationFolder)
+                } else {
+                    throw new IllegalArgumentException(sprintf("Wrong extension: $binding.extension"))
+                }
                 return installationFolder
             case OS.LINUX:
                 ant.gunzip(src: pathToInstaller)
@@ -230,8 +237,9 @@ class Build {
                 if (binding.os == OS.WIN) {
                     exclude(name: "**\\Uninstall.exe")
                     exclude(name: "**\\classes.jsa")
+                } else if (binding.os == OS.MAC){
+                    exclude(name: "**\\*.dylib")
                 }
-                exclude(name: "**\\*.dylib")
             }
         }
         ant.delete(dir: checksumFolder)
@@ -310,13 +318,13 @@ def main(String dir = 'patches') {
 
         try {
             Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, binding, withBundledJdk)
-            Build prevBuild = prevInstaller.installBuild(Paths.get(tempDirectory.toString(), "prev"))
+            Build prevBuild = prevInstaller.installBuild(Paths.get(tempDirectory.toString(), patchName, "prev"))
             prevBuild.calcChecksum()
             prevBuild.patch(patch)
             String prevChecksum = prevBuild.calcChecksum()
 
             Installer currInstaller = new Installer(partsOfPatchName.get(2), edition, binding, withBundledJdk)
-            Build currBuild = currInstaller.installBuild(Paths.get(tempDirectory.toString(), "curr"))
+            Build currBuild = currInstaller.installBuild(Paths.get(tempDirectory.toString(), patchName, "curr"))
             String currChecksum = currBuild.calcChecksum()
 
             if (prevChecksum != currChecksum) {
@@ -331,10 +339,10 @@ def main(String dir = 'patches') {
             println(sprintf("##teamcity[testFailed name='%s'] message='%s']", [testName, e]))
             e.printStackTrace()
         } finally {
-            new AntBuilder().delete(dir: tempDirectory.toString())
             println(sprintf("##teamcity[testFinished name='%s']", testName))
         }
     }
+    new AntBuilder().delete(dir: tempDirectory.toString())
     println("##teamcity[testSuiteFinished name='Patch Update Autotest']")
 }
 
