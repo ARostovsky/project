@@ -320,14 +320,14 @@ def main(String dir = 'patches') {
             new AntBuilder().mkdir(dir: tempDirectory.toString())
             Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, binding, withBundledJdk)
             Build prevBuild = prevInstaller.installBuild(Paths.get(tempDirectory.toString(),
-                                                         sprintf("%s-%s", [partsOfPatchName.get(0), partsOfPatchName.get(1)])))
+                                                         sprintf("previous-%s-%s", [partsOfPatchName.get(0), partsOfPatchName.get(1)])))
             prevBuild.calcChecksum()
             prevBuild.patch(patch)
             String prevChecksum = prevBuild.calcChecksum()
 
             Installer currInstaller = new Installer(partsOfPatchName.get(2), edition, binding, withBundledJdk)
             Build currBuild = currInstaller.installBuild(Paths.get(tempDirectory.toString(),
-                                                         sprintf("%s-%s", [partsOfPatchName.get(0), partsOfPatchName.get(2)])))
+                                                         sprintf("current-%s-%s", [partsOfPatchName.get(0), partsOfPatchName.get(2)])))
             String currChecksum = currBuild.calcChecksum()
 
             if (prevChecksum != currChecksum) {
