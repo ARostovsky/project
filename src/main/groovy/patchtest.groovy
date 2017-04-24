@@ -28,7 +28,7 @@ enum OS {
 }
 
 Map<String, String> map = evaluate(Arrays.toString(args)) as Map<String, String>
-println(sprintf("Args: $map"))
+println("Args: $map")
 
 /**
  * @value product               Product name, should be specified just like it is specified in installer:
@@ -36,9 +36,9 @@ println(sprintf("Args: $map"))
  *
  * @value os {@link OS}
  *
- * @value winExtension          Extension for Windows installers, can be "zip" (by default), "exe" or 'win.zip' (idea)
+ * @value winExtension          Extension for Windows installers, can be "zip" (by default), "exe" or 'win.zip' (IDEA)
  *
- * @value extension             Extension value of installer, can be "exe"/"zip"(win.zip), "tar.gz" or "sit" according to OS
+ * @value extension             Extension value of installer, can be "exe"/"zip" (win.zip), "tar.gz" or "sit" according to OS
  *
  * @value buildConfigurationIDs List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm",
  *                              "ijplatform_master_Idea", "ijplatform_master_PhpStorm", etc.
@@ -111,8 +111,7 @@ class Installer {
                     println("\n" + build.toString())
 
                     List<BuildArtifact> artifacts = build.getArtifacts("")
-                    String artifactNamePattern = getArtifactNamePattern(artifacts)
-                    artifact = artifacts.findAll { it.fileName =~ artifactNamePattern }[0]
+                    artifact = getArtifact(artifacts)
 
                     new AntBuilder().echo("Found $artifact.fileName, downloading")
                     artifact.download(getInstallerPath().getAbsoluteFile())
@@ -125,18 +124,22 @@ class Installer {
         }
     }
 
-    private String getArtifactNamePattern(List<BuildArtifact> artifacts) {
-        if (artifacts.count { it.fileName =~ installerName } == 1) {
-            return installerName
+    private BuildArtifact getArtifact(List<BuildArtifact> artifacts) {
+        String artifactNamePattern = null
+        if (artifacts.count { it.fileName == installerName } == 1) {
+            artifactNamePattern = installerName
         } else {
-            String regex = installerName.replace(buildNumber, '.[\\d.]+')
+            String regex = installerName.replace(buildNumber, '[\\d.]+')
             new AntBuilder().echo("Searching for artifact with $regex regex")
 
-            if (artifacts.count { it.fileName =~ regex } == 1) {
-                return regex
+            if (artifacts.count { it.fileName ==~ regex } == 1) {
+                artifactNamePattern = regex
             }
         }
-        throw new RuntimeException("Didn't find suitable installer in artifacts: $artifacts")
+        if (!artifactNamePattern){
+            throw new RuntimeException("Didn't find suitable installer in artifacts: $artifacts")
+        }
+        return artifacts.findAll { it.fileName =~ artifactNamePattern }[0]
     }
 
     private Path install(Path installationFolder) {
@@ -155,7 +158,7 @@ class Installer {
                 } else if (binding.extension.contains('zip')) {
                     ant.unzip(src: pathToInstaller, dest: installationFolder)
                 } else {
-                    throw new IllegalArgumentException(sprintf("Wrong extension: $binding.extension"))
+                    throw new IllegalArgumentException("Wrong extension: $binding.extension")
                 }
                 return installationFolder
             case OS.LINUX:
@@ -173,22 +176,22 @@ class Installer {
 
                 return getBuildFolder(installationFolder, 2)
             default:
-                throw new IllegalArgumentException(sprintf("Wrong os: $binding.os"))
+                throw new IllegalArgumentException("Wrong os: $binding.os")
         }
     }
 
     private Path getBuildFolder(Path folder, int depth = 1) {
         List<Path> filesInside = Files.list(folder).collect(Collectors.toList())
         if (filesInside.size() != 1) {
-            throw new IllegalArgumentException(sprintf("Unexpected number of files - %s", filesInside.size()))
+            throw new IllegalArgumentException("Unexpected number of files - $filesInside.size")
         }
 
         if (depth == 1) {
-            return Paths.get(filesInside[0].toString())
+            return filesInside[0]
         } else if (depth > 1) {
-            return getBuildFolder(Paths.get(filesInside[0].toString()), depth - 1)
+            return getBuildFolder(filesInside[0], depth - 1)
         } else {
-            throw new IllegalArgumentException(sprintf("depth should be positive - %s", depth))
+            throw new IllegalArgumentException("depth should be positive - $depth")
         }
     }
 
@@ -226,7 +229,7 @@ class Build {
     }
 
     String calcChecksum() {
-        Path checksumFolder = Paths.get(binding.tempDirectory.toString(), "checksums")
+        Path checksumFolder = binding.tempDirectory.resolve("checksums")
 
         AntBuilder ant = new AntBuilder()
         println('')
@@ -249,7 +252,7 @@ class Build {
 
     void patch(File patch) {
         File log4jJar = null
-        buildFolder.toFile().eachFileRecurse(FileType.FILES) { file ->
+        buildFolder.resolve('lib').toFile().eachFileRecurse(FileType.FILES) { file ->
             if (file.name == 'log4j.jar') {
                 log4jJar = file
             }
@@ -261,14 +264,10 @@ class Build {
         AntBuilder ant = new AntBuilder()
         println('')
         ant.echo("Applying patch $patch.name")
-        Path out = Paths.get(binding.out.toString(), patch.name)
+        Path out = binding.out.resolve(patch.name)
         ant.mkdir(dir: out)
 
-        org.apache.tools.ant.types.Path classpath = ant.path {
-            pathelement(path: patch)
-            pathelement(path: log4jJar)
-        }
-        ant.java(classpath: "${classpath}",
+        ant.java(classpath: ant.path {pathelement(path: patch); pathelement(path: log4jJar)},
                  classname: "com.intellij.updater.Runner",
                  fork: "true",
                  maxmemory: "800m",
@@ -282,10 +281,10 @@ class Build {
 }
 
 
-static ArrayList<File> findFiles(String mask, File directory = File('.')) {
+static ArrayList<File> findFiles(String extension, File directory = new File('.')) {
     ArrayList<File> list = []
     directory.eachFileRecurse(FileType.FILES) { file ->
-        if (file.name.contains(mask)) {
+        if (file.name.endsWith(extension)) {
             println(file)
             list << file
         }
@@ -319,15 +318,15 @@ def main(String dir = 'patches') {
         try {
             new AntBuilder().mkdir(dir: tempDirectory.toString())
             Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, binding, withBundledJdk)
-            Build prevBuild = prevInstaller.installBuild(Paths.get(tempDirectory.toString(),
-                                                         sprintf("previous-%s-%s", [partsOfPatchName.get(0), partsOfPatchName.get(1)])))
+            Build prevBuild = prevInstaller.installBuild(tempDirectory
+                    .resolve(sprintf("previous-%s-%s",[partsOfPatchName.get(0), partsOfPatchName.get(1)])))
             prevBuild.calcChecksum()
             prevBuild.patch(patch)
             String prevChecksum = prevBuild.calcChecksum()
 
             Installer currInstaller = new Installer(partsOfPatchName.get(2), edition, binding, withBundledJdk)
-            Build currBuild = currInstaller.installBuild(Paths.get(tempDirectory.toString(),
-                                                         sprintf("current-%s-%s", [partsOfPatchName.get(0), partsOfPatchName.get(2)])))
+            Build currBuild = currInstaller.installBuild(tempDirectory
+                    .resolve(sprintf("current-%s-%s", [partsOfPatchName.get(0), partsOfPatchName.get(2)])))
             String currChecksum = currBuild.calcChecksum()
 
             if (prevChecksum != currChecksum) {
