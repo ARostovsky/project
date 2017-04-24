@@ -297,7 +297,7 @@ static ArrayList<File> findFiles(String extension, File directory = new File('.'
 }
 
 
-def main(Map<String, String> map, String dir = 'patches') {
+def runTest(Map<String, String> map, String dir = 'patches') {
     Globals globals = new Globals(map)
 
     ArrayList<File> patches = findFiles(mask = '.jar', directory = new File(dir))
@@ -351,4 +351,4 @@ def main(Map<String, String> map, String dir = 'patches') {
 
 Map<String, String> map = evaluate(Arrays.toString(args)) as Map<String, String>
 println("Args: $map")
-main(map, 'patches')
+runTest(map)
