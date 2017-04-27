@@ -115,7 +115,7 @@ class Installer {
                     .list()
             builds.each { build ->
                 if (build.buildNumber == buildNumber) {
-                    println("\n" + build.toString())
+                    println(build.toString())
 
                     List<BuildArtifact> artifacts = build.getArtifacts("")
                     artifact = getArtifact(artifacts)
@@ -169,6 +169,7 @@ class Installer {
                 ant.gunzip(src: pathToInstaller)
                 String tar = installerName[0..-1 - ".gz".length()]
                 ant.untar(src: getInstallerPath(tar), dest: installationFolder)
+                ant.delete(file: getInstallerPath(tar).getAbsoluteFile())
                 break
             case 'sit':
                 println("##teamcity[blockOpened name='unzip output']")
@@ -212,6 +213,10 @@ class Installer {
         download()
         Path buildFolder = install(installationFolder)
         return new Build(buildFolder, globals)
+    }
+
+    void delete(){
+        new AntBuilder().delete(file: getInstallerPath().getAbsoluteFile())
     }
 
 }
@@ -284,12 +289,21 @@ class Build {
                  classname: "com.intellij.updater.Runner",
                  fork: "true",
                  maxmemory: "800m",
-                 timeout: globals.timeout * 3000) {
+                 timeout: globals.timeout * 3000,
+                 resultproperty: 'patchResult') {
             jvmarg(value: "-Didea.updater.log=$out")
             arg(line: "install '$buildFolder'")
         }
-        ant.echo("Message 'Java Result: 42' is OK, because this error is thrown from GUI " +
-                 "and it means that IDE restart is needed")
+        switch (ant.project.properties.patchResult){
+            case '42':
+                ant.echo("Message 'Java Result: 42' is OK, because this error is thrown from GUI " +
+                        "and it means that IDE restart is needed")
+                break
+            case '-1':
+                throw new RuntimeException("Patch process failed with -1 result")
+            default:
+                ant.echo("$ant.project.properties.patchResult java result is unexpected here, please check")
+        }
     }
 
     void delete(){
@@ -334,11 +348,13 @@ def runTest(Map<String, String> map, String dir = 'patches') {
         try {
             new AntBuilder().mkdir(dir: globals.tempDirectory.toString())
             for (extension in globals.extensions) {
+                println((globals.extensions.size() > 1) ? "##teamcity[blockOpened name='$extension installers']" : '\n')
                 Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, extension, globals, withBundledJdk)
                 Build prevBuild = prevInstaller.installBuild(globals.tempDirectory.resolve("previous-${partsOfPatchName.get(0)}-${partsOfPatchName.get(1)}-$extension"))
                 prevBuild.calcChecksum()
                 prevBuild.patch(patch)
                 String prevChecksum = prevBuild.calcChecksum()
+                println('')
 
                 Installer currInstaller = new Installer(partsOfPatchName.get(2), edition, extension, globals, withBundledJdk)
                 Build currBuild = currInstaller.installBuild(globals.tempDirectory.resolve("current-${partsOfPatchName.get(0)}-${partsOfPatchName.get(2)}-$extension"))
@@ -348,8 +364,13 @@ def runTest(Map<String, String> map, String dir = 'patches') {
                     println("##teamcity[testFailed name='$testName'] message='Checksums are different: $prevChecksum and $currChecksum']")
                     break
                 }
+                println("\nBuild checksums of $extension installers are ${(prevChecksum == currChecksum)? 'equal' : 'different'}: $prevChecksum and $currChecksum\n")
+
+                prevInstaller.delete()
+                currInstaller.delete()
                 prevBuild.delete()
                 currBuild.delete()
+                (globals.extensions.size() > 1) ? println("##teamcity[blockClosed name='$extension installers']") : null
             }
         }
         catch (WrongConfigurationException e) {
