@@ -348,7 +348,7 @@ def runTest(Map<String, String> map, String dir = 'patches') {
         try {
             new AntBuilder().mkdir(dir: globals.tempDirectory.toString())
             for (extension in globals.extensions) {
-                println((globals.extensions.size() > 1) ? "##teamcity[blockOpened name='$extension installers']" : '\n')
+                (globals.extensions.size() > 1) ? println("##teamcity[blockOpened name='$extension installers']") : null
                 Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, extension, globals, withBundledJdk)
                 Build prevBuild = prevInstaller.installBuild(globals.tempDirectory.resolve("previous-${partsOfPatchName.get(0)}-${partsOfPatchName.get(1)}-$extension"))
                 prevBuild.calcChecksum()
