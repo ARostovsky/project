@@ -15,14 +15,14 @@ enum OS {
         return name == "unix" ? LINUX : valueOf(name.toUpperCase())
     }
 
-    String extension(String winExtension) {
+    List<String> extensions() {
         switch (this) {
             case WIN:
-                return winExtension in ['zip', 'exe', 'win.zip'] ? winExtension : 'zip'
+                return ['exe', 'zip']
             case LINUX:
-                return "tar.gz"
+                return ["tar.gz"]
             case MAC:
-                return "sit"
+                return ["sit"]
             default:
                 throw new IllegalArgumentException("Wrong os: $this")
         }
@@ -35,8 +35,8 @@ class Globals {
      * @value product                Product name, should be specified just like it is specified in installer:
      *                               "pycharm", "idea", "PhpStorm", etc
      * @value os {@link OS}
-     * @value extension              Extension value of installer, can be "exe"/"zip" (win.zip for IDEA), "tar.gz" or
-     *                               "sit" according to OS
+     * @value extensions             Extension values of installers, that should be tested. Can be "exe", "zip"
+     *                               (win.zip for IDEA), "tar.gz" or "sit" according to OS
      * @value buildConfigurationIDs  List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm",
      *                               "ijplatform_master_Idea", "ijplatform_master_PhpStorm", etc.
      * @value timeout                Timeout in seconds, used for Windows installation (using .exe) and patching
@@ -47,7 +47,7 @@ class Globals {
      */
     String product
     OS os
-    String extension
+    List<String> extensions
     List<String> buildConfigurationIDs
     Integer timeout
     Path out
@@ -56,11 +56,10 @@ class Globals {
     Globals(Map<String, String> map) {
         product = map.product
         os = OS.fromPatch(map.platform)
-        println(os)
         /**
-        * @value winExtension        Extension for Windows installers, can be "zip" (by default), "exe" or 'win.zip' (IDEA)
+        * @value customExtensions    List of custom extensions, passed through build configuration
         */
-        extension = os.extension(map.winExtension)
+        extensions = map.customExtensions ? map.customExtensions.split(';') as List<String> : os.extensions()
         buildConfigurationIDs = map.buildConfigurationID.split(';')
         timeout = map.timeout.toInteger()
         out = Paths.get(map.out)
@@ -81,6 +80,7 @@ class WrongConfigurationException extends RuntimeException {
 class Installer {
     private Globals globals
     String buildNumber
+    String extension
     String installerName
 
     /**
@@ -89,13 +89,16 @@ class Installer {
      * @param edition           Two-letter code like "PC" (PyCharm Community Edition) or "PY" (PyCharm Professional
      *                          edition) should be specified here if product has more than 1 configuration.
      *                          If there is no editions - empty string should be specified then.
+     * @param extension         Extension value of installer, can be "exe", "zip" (win.zip for IDEA), "tar.gz" or
+     *                          "sit" according to OS
      * @param globals           Global variables.
      * @param withBundledJdk    Is this build with included jdk or not, default is true.
      */
-    Installer(String buildNumber, String edition, Globals globals, boolean withBundledJdk = true) {
+    Installer(String buildNumber, String edition, String extension, Globals globals, boolean withBundledJdk = true) {
         this.globals = globals
         this.buildNumber = buildNumber
-        this.installerName = "${globals.product}${edition}-${buildNumber}${(withBundledJdk) ? '' : '-no-jdk'}.${globals.extension}"
+        this.extension = extension
+        this.installerName = "${globals.product}${edition}-${buildNumber}${(withBundledJdk) ? '' : '-no-jdk'}.${extension}"
     }
 
     private File getInstallerPath(String installer = installerName) {
@@ -153,31 +156,37 @@ class Installer {
         ant.mkdir(dir: installationFolder.toString())
         File pathToInstaller = getInstallerPath()
 
-        switch (globals.os) {
-            case OS.WIN:
-                if (globals.extension == 'exe') {
-                    ant.exec(executable: "cmd", failonerror: "True") {
-                        arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $globals.timeout > nul")
-                    }
-                } else if (globals.extension.contains('zip')) {
-                    ant.unzip(src: pathToInstaller, dest: installationFolder)
-                } else {
-                    throw new IllegalArgumentException("Wrong extension: $globals.extension")
+        switch (extension) {
+            case 'exe':
+                ant.exec(executable: "cmd", failonerror: "True") {
+                    arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $globals.timeout > nul")
                 }
-                return installationFolder
-            case OS.LINUX:
+                break
+            case ['zip', 'win.zip']:
+                ant.unzip(src: pathToInstaller, dest: installationFolder)
+                break
+            case 'tar.gz':
                 ant.gunzip(src: pathToInstaller)
                 String tar = installerName[0..-1 - ".gz".length()]
                 ant.untar(src: getInstallerPath(tar), dest: installationFolder)
-
-                return getBuildFolder(installationFolder, 1)
-            case OS.MAC:
+                break
+            case 'sit':
                 println("##teamcity[blockOpened name='unzip output']")
                 ant.exec(executable: "unzip", failonerror: "True") {
                     arg(line: "$pathToInstaller -d $installationFolder")
                 }
                 println("##teamcity[blockClosed name='unzip output']")
+                break
+            default:
+                throw new IllegalArgumentException("Wrong extension: $extension")
+        }
 
+        switch (globals.os) {
+            case OS.WIN:
+                return installationFolder
+            case OS.LINUX:
+                return getBuildFolder(installationFolder, 1)
+            case OS.MAC:
                 return getBuildFolder(installationFolder, 2)
             default:
                 throw new IllegalArgumentException("Wrong os: $globals.os")
@@ -282,6 +291,10 @@ class Build {
         ant.echo("Message 'Java Result: 42' is OK, because this error is thrown from GUI " +
                  "and it means that IDE restart is needed")
     }
+
+    void delete(){
+        new AntBuilder().delete(dir: buildFolder.toString())
+    }
 }
 
 
@@ -320,18 +333,23 @@ def runTest(Map<String, String> map, String dir = 'patches') {
 
         try {
             new AntBuilder().mkdir(dir: globals.tempDirectory.toString())
-            Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, globals, withBundledJdk)
-            Build prevBuild = prevInstaller.installBuild(globals.tempDirectory.resolve("previous-${partsOfPatchName.get(0)}-${partsOfPatchName.get(1)}"))
-            prevBuild.calcChecksum()
-            prevBuild.patch(patch)
-            String prevChecksum = prevBuild.calcChecksum()
+            for (extension in globals.extensions) {
+                Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, extension, globals, withBundledJdk)
+                Build prevBuild = prevInstaller.installBuild(globals.tempDirectory.resolve("previous-${partsOfPatchName.get(0)}-${partsOfPatchName.get(1)}-$extension"))
+                prevBuild.calcChecksum()
+                prevBuild.patch(patch)
+                String prevChecksum = prevBuild.calcChecksum()
 
-            Installer currInstaller = new Installer(partsOfPatchName.get(2), edition, globals, withBundledJdk)
-            Build currBuild = currInstaller.installBuild(globals.tempDirectory.resolve("current-${partsOfPatchName.get(0)}-${partsOfPatchName.get(2)}"))
-            String currChecksum = currBuild.calcChecksum()
+                Installer currInstaller = new Installer(partsOfPatchName.get(2), edition, extension, globals, withBundledJdk)
+                Build currBuild = currInstaller.installBuild(globals.tempDirectory.resolve("current-${partsOfPatchName.get(0)}-${partsOfPatchName.get(2)}-$extension"))
+                String currChecksum = currBuild.calcChecksum()
 
-            if (prevChecksum != currChecksum) {
-                println("##teamcity[testFailed name='$testName'] message='Checksums are different: $prevChecksum and $currChecksum']")
+                if (prevChecksum != currChecksum) {
+                    println("##teamcity[testFailed name='$testName'] message='Checksums are different: $prevChecksum and $currChecksum']")
+                    break
+                }
+                prevBuild.delete()
+                currBuild.delete()
             }
         }
         catch (WrongConfigurationException e) {
