@@ -32,24 +32,32 @@ enum OS {
 
 class Globals {
     /**
-     * @value product                Product name, should be specified just like it is specified in installer:
-     *                               "pycharm", "idea", "PhpStorm", etc
-     * @value os {@link OS}
-     * @value extensions             Extension values of installers, that should be tested. Can be "exe", "zip"
-     *                               (win.zip for IDEA), "tar.gz" or "sit" according to OS
-     * @value buildConfigurationIDs  List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm",
-     *                               "ijplatform_master_Idea", "ijplatform_master_PhpStorm", etc.
-     * @value timeout                Timeout in seconds, used for Windows installation (using .exe) and patching
-     *                               processes. By default it's 60 seconds for Windows installation, but for patching
-     *                               it's multiplied by 3. Can be passed as a parameter via TeamCity for reasons like
-     *                               slow installation or patching in different IDEs.
-     * @value out                    Folder for artifacts that should be saved after test. Used for store patch logs.
+     * Product name, should be specified just like it is specified in installer: "pycharm", "idea", "PhpStorm", etc
      */
     String product
+    /**
+     * {@link OS}
+     */
     OS os
+    /**
+     * Extension values of installers, that should be tested. Can be "exe", "zip" (win.zip for IDEA),
+     * "tar.gz" or "sit" according to OS
+     */
     List<String> extensions
+    /**
+     * List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm", "ijplatform_master_Idea",
+     * "ijplatform_master_PhpStorm", etc.
+     */
     List<String> buildConfigurationIDs
+    /**
+     * Timeout in seconds, used for Windows installation (using .exe) and patching processes. By default it's
+     * 60 seconds for Windows installation, but for patching it's multiplied by 3. Can be passed as a parameter
+     * via TeamCity for reasons like slow installation or patching in different IDEs.
+     */
     Integer timeout
+    /**
+     * Folder for artifacts that should be saved after test. Used for store patch logs.
+     */
     Path out
     Path tempDirectory
 
@@ -57,7 +65,7 @@ class Globals {
         product = map.product
         os = OS.fromPatch(map.platform)
         /**
-        * @value customExtensions    List of custom extensions, passed through build configuration
+        * customExtensions - list of custom extensions, passed through build configuration
         */
         extensions = map.customExtensions ? map.customExtensions.split(';') as List<String> : os.extensions()
         buildConfigurationIDs = map.buildConfigurationID.split(';')
@@ -348,7 +356,7 @@ def runTest(Map<String, String> map, String dir = 'patches') {
         try {
             new AntBuilder().mkdir(dir: globals.tempDirectory.toString())
             for (extension in globals.extensions) {
-                (globals.extensions.size() > 1) ? println("##teamcity[blockOpened name='$extension installers']") : null
+                if (globals.extensions.size() > 1) println("##teamcity[blockOpened name='$extension installers']")
                 Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, extension, globals, withBundledJdk)
                 Build prevBuild = prevInstaller.installBuild(globals.tempDirectory.resolve("previous-${partsOfPatchName.get(0)}-${partsOfPatchName.get(1)}-$extension"))
                 prevBuild.calcChecksum()
@@ -370,7 +378,7 @@ def runTest(Map<String, String> map, String dir = 'patches') {
                 currInstaller.delete()
                 prevBuild.delete()
                 currBuild.delete()
-                (globals.extensions.size() > 1) ? println("##teamcity[blockClosed name='$extension installers']") : null
+                if (globals.extensions.size() > 1) println("##teamcity[blockClosed name='$extension installers']")
             }
         }
         catch (WrongConfigurationException e) {
@@ -379,6 +387,7 @@ def runTest(Map<String, String> map, String dir = 'patches') {
         catch (e){
             println("##teamcity[testFailed name='$testName'] message='$e']")
             e.printStackTrace()
+            if (globals.extensions.size() > 1) println("##teamcity[blockClosed name='$extension installers']")
         } finally {
             new AntBuilder().delete(dir: globals.tempDirectory.toString())
             println("##teamcity[testFinished name='$testName']")
