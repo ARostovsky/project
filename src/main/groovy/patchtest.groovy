@@ -64,9 +64,7 @@ class Globals {
     Globals(Map<String, String> map) {
         product = map.product
         os = OS.fromPatch(map.platform)
-        /**
-        * customExtensions - list of custom extensions, passed through build configuration
-        */
+        // customExtensions - list of custom extensions, passed through build configuration
         extensions = map.customExtensions ? map.customExtensions.split(';') as List<String> : os.extensions()
         buildConfigurationIDs = map.buildConfigurationID.split(';')
         timeout = map.timeout.toInteger()
@@ -387,7 +385,7 @@ def runTest(Map<String, String> map, String dir = 'patches') {
         catch (e){
             println("##teamcity[testFailed name='$testName'] message='$e']")
             e.printStackTrace()
-            if (globals.extensions.size() > 1) println("##teamcity[blockClosed name='$extension installers']")
+            if (globals.extensions.size() > 1) println("##teamcity[blockClosed]")
         } finally {
             new AntBuilder().delete(dir: globals.tempDirectory.toString())
             println("##teamcity[testFinished name='$testName']")
