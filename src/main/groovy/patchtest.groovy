@@ -358,7 +358,14 @@ def runTest(Map<String, String> map, String dir = 'patches') {
                 Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, extension, globals, withBundledJdk)
                 Build prevBuild = prevInstaller.installBuild(globals.tempDirectory.resolve("previous-${partsOfPatchName.get(0)}-${partsOfPatchName.get(1)}-$extension"))
                 prevBuild.calcChecksum()
-                prevBuild.patch(patch)
+                try {
+                    prevBuild.patch(patch)
+                }
+                catch (RuntimeException e){
+                    if (globals.extensions.size() > 1) println("##teamcity[blockClosed name='$extension installers']")
+                    println("##teamcity[testFailed name='$testName'] message='$e.message']")
+                    break
+                }
                 String prevChecksum = prevBuild.calcChecksum()
                 println('')
 
@@ -385,7 +392,6 @@ def runTest(Map<String, String> map, String dir = 'patches') {
         catch (e){
             println("##teamcity[testFailed name='$testName'] message='$e']")
             e.printStackTrace()
-            if (globals.extensions.size() > 1) println("##teamcity[blockClosed]")
         } finally {
             new AntBuilder().delete(dir: globals.tempDirectory.toString())
             println("##teamcity[testFinished name='$testName']")
