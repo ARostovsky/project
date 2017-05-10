@@ -6,6 +6,8 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.stream.Collectors
 
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING
+
 enum OS {
     WIN,
     LINUX,
@@ -275,10 +277,10 @@ class Build {
     }
 
     void patch(File patch) {
-        File log4jJar = null
+        Path log4jJar = Paths.get(globals.tempDirectory.toString(), 'log4j.jar')
         buildFolder.resolve('lib').toFile().eachFileRecurse(FileType.FILES) { file ->
             if (file.name == 'log4j.jar') {
-                log4jJar = file
+                Files.copy(file.toPath(), log4jJar, REPLACE_EXISTING)
             }
         }
         if (!log4jJar) {
@@ -308,7 +310,7 @@ class Build {
             case '-1':
                 throw new RuntimeException("Patch process failed with -1 result")
             default:
-                ant.echo("$ant.project.properties.patchResult java result is unexpected here, please check")
+                ant.echo("Java result $ant.project.properties.patchResult is unexpected here, please check")
         }
     }
 
