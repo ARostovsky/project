@@ -85,6 +85,14 @@ class WrongConfigurationException extends RuntimeException {
 }
 
 
+class KnownException extends RuntimeException {
+    KnownException(String message)
+    {
+        super(message)
+    }
+}
+
+
 class Installer {
     private Globals globals
     String buildNumber
@@ -135,7 +143,7 @@ class Installer {
             }
         }
         if (!artifact) {
-            throw new WrongConfigurationException("Didn't find build $buildNumber in configurations: $globals.buildConfigurationIDs")
+            throw new WrongConfigurationException("Check your build configuration: Didn't find build $buildNumber in configurations: $globals.buildConfigurationIDs")
         }
     }
 
@@ -308,7 +316,7 @@ class Build {
                         "and it means that IDE restart is needed")
                 break
             case '-1':
-                throw new RuntimeException("Patch process failed with -1 result")
+                throw new KnownException("Patch process failed with -1 result")
             default:
                 ant.echo("Java result $ant.project.properties.patchResult is unexpected here, please check")
         }
@@ -316,6 +324,24 @@ class Build {
 
     void delete(){
         new AntBuilder().delete(dir: buildFolder.toString())
+    }
+
+    boolean isSignatureValid(){
+        AntBuilder ant = new AntBuilder()
+        switch (globals.os){
+            case OS.MAC:
+                Path folder = buildFolder.resolve('../').toAbsolutePath()
+                ant.exec(executable: "codesign", failonerror: "False", outputproperty: "checkOutput", resultproperty: 'checkResult') {
+                    arg(line: "-vv '$folder'")
+                }
+                ant.echo(ant.project.properties.checkOutput)
+                return (ant.project.properties.checkResult == '0')
+//            case OS.WIN:
+//                TODO
+            default:
+                ant.echo("Signature can't be verified for this OS")
+                return true
+        }
     }
 }
 
@@ -353,6 +379,9 @@ def runTest(Map<String, String> map, String dir = 'patches') {
         String testName = "${product} ${edition}${withBundledJdk ? '' : ' (no-jdk)'}${(edition || !withBundledJdk) ? ' edition' : ''} test, patch name: $patchName"
         println("##teamcity[testStarted name='$testName']")
 
+        Closure installersBlockClose = {
+            if (globals.extensions.size() > 1) println("##teamcity[blockClosed name='$extension installers']")
+        }
         try {
             new AntBuilder().mkdir(dir: globals.tempDirectory.toString())
             for (extension in globals.extensions) {
@@ -360,40 +389,40 @@ def runTest(Map<String, String> map, String dir = 'patches') {
                 Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, extension, globals, withBundledJdk)
                 Build prevBuild = prevInstaller.installBuild(globals.tempDirectory.resolve("previous-${partsOfPatchName.get(0)}-${partsOfPatchName.get(1)}-$extension"))
                 prevBuild.calcChecksum()
-                try {
-                    prevBuild.patch(patch)
-                }
-                catch (RuntimeException e){
-                    if (globals.extensions.size() > 1) println("##teamcity[blockClosed name='$extension installers']")
-                    println("##teamcity[testFailed name='$testName'] message='$e.message']")
-                    break
-                }
+                if (globals.os == OS.MAC && !prevBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
+
+                prevBuild.patch(patch)
                 String prevChecksum = prevBuild.calcChecksum()
+                if (globals.os == OS.MAC && !prevBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
                 println('')
 
                 Installer currInstaller = new Installer(partsOfPatchName.get(2), edition, extension, globals, withBundledJdk)
                 Build currBuild = currInstaller.installBuild(globals.tempDirectory.resolve("current-${partsOfPatchName.get(0)}-${partsOfPatchName.get(2)}-$extension"))
                 String currChecksum = currBuild.calcChecksum()
+                if (globals.os == OS.MAC && !currBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
 
-                if (prevChecksum != currChecksum) {
-                    println("##teamcity[testFailed name='$testName'] message='Checksums are different: $prevChecksum and $currChecksum']")
-                    break
-                }
-                println("\nBuild checksums of $extension installers are ${(prevChecksum == currChecksum)? 'equal' : 'different'}: $prevChecksum and $currChecksum\n")
+                if (prevChecksum != currChecksum) throw new KnownException('Checksums are different: $prevChecksum and $currChecksum')
+                println("\nBuild checksums of $extension installers are equal: $prevChecksum and $currChecksum\n")
 
                 prevInstaller.delete()
                 currInstaller.delete()
                 prevBuild.delete()
                 currBuild.delete()
-                if (globals.extensions.size() > 1) println("##teamcity[blockClosed name='$extension installers']")
+                installersBlockClose()
             }
         }
         catch (WrongConfigurationException e) {
-            println("##teamcity[testIgnored name='$testName'] message='Check your build configuration: $e.message']")
+            installersBlockClose()
+            println("##teamcity[testIgnored name='$testName'] message='$e.message']")
+        }
+        catch (KnownException e) {
+            installersBlockClose()
+            println("##teamcity[testFailed name='$testName'] message='$e.message']")
         }
         catch (e){
-            println("##teamcity[testFailed name='$testName'] message='$e']")
             e.printStackTrace()
+            installersBlockClose()
+            println("##teamcity[testFailed name='$testName'] message='$e.message']")
         } finally {
             new AntBuilder().delete(dir: globals.tempDirectory.toString())
             println("##teamcity[testFinished name='$testName']")
