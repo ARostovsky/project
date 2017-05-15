@@ -68,7 +68,7 @@ class Globals {
         os = OS.fromPatch(map.platform)
         // customExtensions - list of custom extensions, passed through build configuration
         extensions = map.customExtensions ? map.customExtensions.split(';') as List<String> : os.extensions()
-        buildConfigurationIDs = map.buildConfigurationID.split(';')
+        buildConfigurationIDs = map.buildConfigurationID.split(';') as List<String>
         timeout = map.timeout.toInteger()
         out = Paths.get(map.out)
         tempDirectory = Files.createTempDirectory('patchtest_')
@@ -379,13 +379,17 @@ def runTest(Map<String, String> map, String dir = 'patches') {
         String testName = "${product} ${edition}${withBundledJdk ? '' : ' (no-jdk)'}${(edition || !withBundledJdk) ? ' edition' : ''} test, patch name: $patchName"
         println("##teamcity[testStarted name='$testName']")
 
-        Closure installersBlockClose = {
-            if (globals.extensions.size() > 1) println("##teamcity[blockClosed name='$extension installers']")
+        Closure installersBlockClose = { String ext ->
+            if (globals.extensions.size() > 1) println("##teamcity[blockClosed name='$ext installers']")
         }
+        String ext = null
+
         try {
             new AntBuilder().mkdir(dir: globals.tempDirectory.toString())
             for (extension in globals.extensions) {
                 if (globals.extensions.size() > 1) println("##teamcity[blockOpened name='$extension installers']")
+                ext = extension
+
                 Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, extension, globals, withBundledJdk)
                 Build prevBuild = prevInstaller.installBuild(globals.tempDirectory.resolve("previous-${partsOfPatchName.get(0)}-${partsOfPatchName.get(1)}-$extension"))
                 prevBuild.calcChecksum()
@@ -401,27 +405,27 @@ def runTest(Map<String, String> map, String dir = 'patches') {
                 String currChecksum = currBuild.calcChecksum()
                 if (globals.os == OS.MAC && !currBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
 
-                if (prevChecksum != currChecksum) throw new KnownException('Checksums are different: $prevChecksum and $currChecksum')
+                if (prevChecksum != currChecksum) throw new KnownException("Checksums are different: $prevChecksum and $currChecksum")
                 println("\nBuild checksums of $extension installers are equal: $prevChecksum and $currChecksum\n")
 
                 prevInstaller.delete()
                 currInstaller.delete()
                 prevBuild.delete()
                 currBuild.delete()
-                installersBlockClose()
+                installersBlockClose(ext)
             }
         }
         catch (WrongConfigurationException e) {
-            installersBlockClose()
+            installersBlockClose(ext)
             println("##teamcity[testIgnored name='$testName'] message='$e.message']")
         }
         catch (KnownException e) {
-            installersBlockClose()
+            installersBlockClose(ext)
             println("##teamcity[testFailed name='$testName'] message='$e.message']")
         }
         catch (e){
             e.printStackTrace()
-            installersBlockClose()
+            installersBlockClose(ext)
             println("##teamcity[testFailed name='$testName'] message='$e.message']")
         } finally {
             new AntBuilder().delete(dir: globals.tempDirectory.toString())
