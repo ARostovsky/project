@@ -152,7 +152,7 @@ class Installer {
         if (artifacts.count { it.fileName == installerName } == 1) {
             artifactNamePattern = installerName
         } else {
-            String regex = installerName.replace(buildNumber, '[\\d.]+')
+            String regex = installerName.replace(buildNumber, '(EAP-)?[\\d.]+')
             new AntBuilder().echo("Searching for artifact with $regex regex")
 
             if (artifacts.count { it.fileName ==~ regex } == 1) {
