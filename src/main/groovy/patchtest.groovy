@@ -393,7 +393,7 @@ def runTest(Map<String, String> map, String dir = 'patches') {
                 Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, extension, globals, withBundledJdk)
                 Build prevBuild = prevInstaller.installBuild(globals.tempDirectory.resolve("previous-${partsOfPatchName.get(0)}-${partsOfPatchName.get(1)}-$extension"))
                 prevBuild.calcChecksum()
-                if (globals.os == OS.MAC && !prevBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
+                if (globals.os == OS.MAC && !prevBuild.isSignatureValid()) println('Signature verification failed')
 
                 prevBuild.patch(patch)
                 String prevChecksum = prevBuild.calcChecksum()
