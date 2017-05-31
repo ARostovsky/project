@@ -21,22 +21,19 @@ task runScript (dependsOn: 'classes', type: JavaExec) {
     main = 'patchtest'
     classpath = sourceSets.main.runtimeClasspath
 
-    def product = project.hasProperty('product') ? project.getProperty('product') : null
-    def platform = project.hasProperty('platform') ? project.getProperty('platform') : null
-    def buildConfigurationID = project.hasProperty('buildConfigurationID') ? project.getProperty('buildConfigurationID') : null
-    def timeout = project.hasProperty('timeout') ? project.getProperty('timeout') : '60'
-    def out = project.hasProperty('out') ? project.getProperty('out') : 'out'
-    def customExtensions = project.hasProperty('customExtensions') ? project.getProperty('customExtensions') : ''
+    doFirst {
+        def product = project.hasProperty('product') ? project.getProperty('product') : null
+        def platform = project.hasProperty('platform') ? project.getProperty('platform') : null
+        def buildConfigurationID = project.hasProperty('buildConfigurationID') ? project.getProperty('buildConfigurationID') : null
+        def timeout = project.hasProperty('timeout') ? project.getProperty('timeout') : '60'
+        def out = project.hasProperty('out') ? project.getProperty('out') : 'out'
+        def customExtensions = project.hasProperty('customExtensions') ? project.getProperty('customExtensions') : ''
 
-    if (product && platform && buildConfigurationID){
-        args sprintf("'product':'$product'," +
-                     "'platform':'$platform'," +
-                     "'buildConfigurationID':'$buildConfigurationID'," +
-                     "'timeout':'$timeout'," +
-                     "'out':'$out'," +
-                     "'customExtensions':'$customExtensions'")
-    } else {
-        throw new GradleException("Some args: {product, platform, buildConfigurationID} are undefined")
+        if (product && platform && buildConfigurationID){
+            args "'product':'$product', 'platform':'$platform', 'buildConfigurationID':'$buildConfigurationID', " +
+                    "'timeout':'$timeout', 'out':'$out', 'customExtensions':'$customExtensions'"
+        } else {
+            throw new GradleException("Some args: {product, platform, buildConfigurationID} are undefined")
+        }
     }
-
 }
