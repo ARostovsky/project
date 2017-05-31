@@ -20,7 +20,7 @@ enum OS {
     List<String> extensions() {
         switch (this) {
             case WIN:
-                return ['exe', 'zip']
+                return ["exe", "zip"]
             case LINUX:
                 return ["tar.gz"]
             case MAC:
@@ -34,46 +34,60 @@ enum OS {
 
 class Globals {
     /**
-     * Product name, should be specified just like it is specified in installer: "pycharm", "idea", "PhpStorm", etc
+     * List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm", "ijplatform_master_Idea",
+     * "ijplatform_master_PhpStorm", etc.
      */
-    String product
+    List<String> buildConfigurationIDs
     /**
-     * {@link OS}
+     * Build ID of currently running configuration
      */
-    OS os
+    String buildID
+    /**
+     * Directory to store patches
+     */
+    String patchesDir
     /**
      * Extension values of installers, that should be tested. Can be "exe", "zip" (win.zip for IDEA),
      * "tar.gz" or "sit" according to OS
      */
     List<String> extensions
     /**
-     * List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm", "ijplatform_master_Idea",
-     * "ijplatform_master_PhpStorm", etc.
+     * {@link OS}
      */
-    List<String> buildConfigurationIDs
+    OS os
+    /**
+     * Folder for artifacts that should be saved after test. Used for store patch logs.
+     */
+    Path out
+    /**
+     * platform value, passed through build configuration
+     */
+    String platform
+    /**
+     * Product name, should be specified just like it is specified in installer: "pycharm", "idea", "PhpStorm", etc
+     */
+    String product
+    Path tempDirectory
     /**
      * Timeout in seconds, used for Windows installation (using .exe) and patching processes. By default it's
      * 60 seconds for Windows installation, but for patching it's multiplied by 3. Can be passed as a parameter
      * via TeamCity for reasons like slow installation or patching in different IDEs.
      */
     Integer timeout
-    /**
-     * Folder for artifacts that should be saved after test. Used for store patch logs.
-     */
-    Path out
-    Path tempDirectory
 
     Globals(Map<String, String> map) {
-        product = map.product
+        buildID = map.buildID
+        buildConfigurationIDs = map.buildConfigurationID.split(';') as List<String>
+        patchesDir = 'patches'
         os = OS.fromPatch(map.platform)
         // customExtensions - list of custom extensions, passed through build configuration
         extensions = map.customExtensions ? map.customExtensions.split(';') as List<String> : os.extensions()
-        buildConfigurationIDs = map.buildConfigurationID.split(';') as List<String>
-        timeout = map.timeout.toInteger()
         out = Paths.get(map.out)
+        platform = map.platform
+        product = map.product
         tempDirectory = Files.createTempDirectory('patchtest_')
+        timeout = map.timeout.toInteger()
     }
-
 }
 
 
@@ -358,10 +372,8 @@ static ArrayList<File> findFiles(String extension, File directory = new File('.'
 }
 
 
-def runTest(Map<String, String> map, String dir = 'patches') {
-    Globals globals = new Globals(map)
-
-    ArrayList<File> patches = findFiles(mask = '.jar', directory = new File(dir))
+def runTest(Globals globals) {
+    ArrayList<File> patches = findFiles(mask = '.jar', directory = new File(globals.patchesDir))
     println("##teamcity[enteredTheMatrix]")
     println("##teamcity[testCount count='$patches.size']")
     println("##teamcity[testSuiteStarted name='Patch Update Autotest']")
@@ -436,6 +448,21 @@ def runTest(Map<String, String> map, String dir = 'patches') {
 }
 
 
+def downloadArtifactsFromTriggeredBuild(Globals globals){
+    org.jetbrains.teamcity.rest.Build build = TeamCityInstance["Companion"]
+            .guestAuth("http://buildserver.labs.intellij.net")
+            .build(new BuildId(globals.buildID))
+
+    triggeredInfo = build.fetchTriggeredInfo()
+    if (triggeredInfo.build != null) {
+        new AntBuilder().delete(dir: globals.patchesDir)
+        triggeredInfo.build.downloadArtifacts("*$globals.platform*", new File(globals.patchesDir))
+    }
+}
+
+
 Map<String, String> map = evaluate(Arrays.toString(args)) as Map<String, String>
 println("Args: $map")
-runTest(map)
+Globals globals = new Globals(map)
+downloadArtifactsFromTriggeredBuild(globals)
+runTest(globals)

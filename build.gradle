@@ -22,18 +22,19 @@ task runScript (dependsOn: 'classes', type: JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
 
     doFirst {
-        def product = project.hasProperty('product') ? project.getProperty('product') : null
-        def platform = project.hasProperty('platform') ? project.getProperty('platform') : null
         def buildConfigurationID = project.hasProperty('buildConfigurationID') ? project.getProperty('buildConfigurationID') : null
-        def timeout = project.hasProperty('timeout') ? project.getProperty('timeout') : '60'
-        def out = project.hasProperty('out') ? project.getProperty('out') : 'out'
+        def buildID = project.hasProperty('buildID') ? project.getProperty('buildID') : null
         def customExtensions = project.hasProperty('customExtensions') ? project.getProperty('customExtensions') : ''
+        def out = project.hasProperty('out') ? project.getProperty('out') : 'out'
+        def platform = project.hasProperty('platform') ? project.getProperty('platform') : null
+        def product = project.hasProperty('product') ? project.getProperty('product') : null
+        def timeout = project.hasProperty('timeout') ? project.getProperty('timeout') : '60'
 
-        if (product && platform && buildConfigurationID){
-            args "'product':'$product', 'platform':'$platform', 'buildConfigurationID':'$buildConfigurationID', " +
-                    "'timeout':'$timeout', 'out':'$out', 'customExtensions':'$customExtensions'"
+        if (product && platform && buildConfigurationID && buildID){
+            args "'buildConfigurationID':'$buildConfigurationID', 'buildID': '$buildID', 'customExtensions':'$customExtensions', " +
+                    "'out':'$out', 'platform':'$platform', 'product':'$product', 'timeout':'$timeout'"
         } else {
-            throw new GradleException("Some args: {product, platform, buildConfigurationID} are undefined")
+            throw new GradleException("Some args: {buildConfigurationID, buildID, platform, product} are undefined")
         }
     }
 }
