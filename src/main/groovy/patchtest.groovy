@@ -37,11 +37,11 @@ class Globals {
      * List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm", "ijplatform_master_Idea",
      * "ijplatform_master_PhpStorm", etc.
      */
-    List<String> buildConfigurationIDs
+    List<BuildConfigurationId> buildConfigurationIDs = []
     /**
      * Build ID of currently running configuration
      */
-    String buildID
+    String buildId
     /**
      * Directory to store patches
      */
@@ -67,6 +67,7 @@ class Globals {
      * Product name, should be specified just like it is specified in installer: "pycharm", "idea", "PhpStorm", etc
      */
     String product
+    TeamCityInstance teamCityInstance
     Path tempDirectory
     /**
      * Timeout in seconds, used for Windows installation (using .exe) and patching processes. By default it's
@@ -76,8 +77,7 @@ class Globals {
     Integer timeout
 
     Globals(Map<String, String> map) {
-        buildID = map.buildID
-        buildConfigurationIDs = map.buildConfigurationID.split(';') as List<String>
+        buildId = map.buildId
         patchesDir = 'patches'
         os = OS.fromPatch(map.platform)
         // customExtensions - list of custom extensions, passed through build configuration
@@ -87,21 +87,22 @@ class Globals {
         product = map.product
         tempDirectory = Files.createTempDirectory('patchtest_')
         timeout = map.timeout.toInteger()
+
+        teamCityInstance = TeamCityInstance["Companion"]
+                .httpAuth("http://buildserver.labs.intellij.net", map.authUserId, map.authPassword)
     }
 }
 
 
 class WrongConfigurationException extends RuntimeException {
-    WrongConfigurationException(String message)
-    {
+    WrongConfigurationException(String message) {
         super(message)
     }
 }
 
 
 class KnownException extends RuntimeException {
-    KnownException(String message)
-    {
+    KnownException(String message) {
         super(message)
     }
 }
@@ -137,24 +138,18 @@ class Installer {
 
     private void download() {
         BuildArtifact artifact = null
-        globals.buildConfigurationIDs.each { String buildConfigurationID ->
-            ArrayList<org.jetbrains.teamcity.rest.Build> builds = TeamCityInstance["Companion"]
-                    .guestAuth("http://buildserver.labs.intellij.net")
-                    .builds()
-                    .fromConfiguration(new BuildConfigurationId(buildConfigurationID))
-                    .list()
-            builds.each { build ->
-                if (build.buildNumber == buildNumber) {
-                    println(build.toString())
+        for (buildConfigurationID in globals.buildConfigurationIDs) {
+            org.jetbrains.teamcity.rest.Build build = globals.teamCityInstance.build(buildConfigurationID, buildNumber)
 
-                    List<BuildArtifact> artifacts = build.getArtifacts("")
-                    artifact = getArtifact(artifacts)
+            if (!build) continue
+            println(build.toString())
 
-                    new AntBuilder().echo("Found $artifact.fileName, downloading")
-                    artifact.download(getInstallerPath().getAbsoluteFile())
-                    return true
-                }
-            }
+            List<BuildArtifact> artifacts = build.getArtifacts("")
+            artifact = getArtifact(artifacts)
+            new AntBuilder().echo("Found $artifact.fileName, downloading")
+            artifact.download(getInstallerPath().getAbsoluteFile())
+
+            break
         }
         if (!artifact) {
             throw new WrongConfigurationException("Check your build configuration: Didn't find build $buildNumber in configurations: $globals.buildConfigurationIDs")
@@ -173,7 +168,7 @@ class Installer {
                 artifactNamePattern = regex
             }
         }
-        if (!artifactNamePattern){
+        if (!artifactNamePattern) {
             throw new RuntimeException("Didn't find suitable installer in artifacts: $artifacts")
         }
         return artifacts.findAll { it.fileName =~ artifactNamePattern }[0]
@@ -239,13 +234,16 @@ class Installer {
         }
     }
 
-    Build installBuild(Path installationFolder) {
+    Build installBuild(Path installationFolder = null, String prefix = "") {
+        if (!installationFolder) {
+            installationFolder = globals.tempDirectory.resolve("$prefix-${installerName.replace('.', '-')}")
+        }
         download()
         Path buildFolder = install(installationFolder)
         return new Build(buildFolder, globals)
     }
 
-    void delete(){
+    void delete() {
         new AntBuilder().delete(file: getInstallerPath().getAbsoluteFile())
     }
 
@@ -288,7 +286,7 @@ class Build {
                 if (globals.os == OS.WIN) {
                     exclude(name: "**\\Uninstall.exe")
                     exclude(name: "**\\classes.jsa")
-                } else if (globals.os == OS.MAC){
+                } else if (globals.os == OS.MAC) {
                     exclude(name: "**\\*.dylib")
                 }
             }
@@ -315,7 +313,7 @@ class Build {
         Path out = globals.out.resolve(patch.name)
         ant.mkdir(dir: out)
 
-        ant.java(classpath: ant.path {pathelement(path: patch); pathelement(path: log4jJar)},
+        ant.java(classpath: ant.path { pathelement(path: patch); pathelement(path: log4jJar) },
                  classname: "com.intellij.updater.Runner",
                  fork: "true",
                  maxmemory: "800m",
@@ -324,7 +322,7 @@ class Build {
             jvmarg(value: "-Didea.updater.log=$out")
             arg(line: "install '$buildFolder'")
         }
-        switch (ant.project.properties.patchResult){
+        switch (ant.project.properties.patchResult) {
             case '42':
                 ant.echo("Message 'Java Result: 42' is OK, because this error is thrown from GUI " +
                         "and it means that IDE restart is needed")
@@ -336,13 +334,13 @@ class Build {
         }
     }
 
-    void delete(){
+    void delete() {
         new AntBuilder().delete(dir: buildFolder.toString())
     }
 
-    boolean isSignatureValid(){
+    boolean isSignatureValid() {
         AntBuilder ant = new AntBuilder()
-        switch (globals.os){
+        switch (globals.os) {
             case OS.MAC:
                 Path folder = buildFolder.resolve('../').toAbsolutePath()
                 ant.exec(executable: "codesign", failonerror: "False", outputproperty: "checkOutput", resultproperty: 'checkResult') {
@@ -360,109 +358,188 @@ class Build {
 }
 
 
-static ArrayList<File> findFiles(String extension, File directory = new File('.')) {
-    ArrayList<File> list = []
-    directory.eachFileRecurse(FileType.FILES) { file ->
-        if (file.name.endsWith(extension)) {
-            println(file)
-            list << file
-        }
+abstract class PatchTestClass {
+    abstract AntBuilder ant = new AntBuilder()
+    abstract Globals globals
+
+    PatchTestClass(Globals globals) {
+        this.globals = globals
     }
-    return list
+
+    abstract def setUp
+    abstract def tearDown
+    abstract def runTest
+
+    def run() {
+        this.setUp()
+        this.runTest()
+        this.tearDown()
+    }
 }
 
 
-def runTest(Globals globals) {
-    ArrayList<File> patches = findFiles(mask = '.jar', directory = new File(globals.patchesDir))
-    println("##teamcity[enteredTheMatrix]")
-    println("##teamcity[testCount count='$patches.size']")
-    println("##teamcity[testSuiteStarted name='Patch Update Autotest']")
+class PatchTestSuite extends PatchTestClass {
+    private ArrayList<File> patches
 
-    patches.each { File patch ->
+    PatchTestSuite(Globals globals) {
+        super(globals)
+    }
+
+    private def setUp() {
+        org.jetbrains.teamcity.rest.Build sourceBuild = getSourceBuild()
+
+        ant.delete(dir: globals.patchesDir)
+        sourceBuild.downloadArtifacts("*$globals.platform*", new File(globals.patchesDir))
+        setGlobalsBuildConfigurationIDs(sourceBuild)
+
+        patches = findFiles('.jar', new File(globals.patchesDir))
+        println("##teamcity[enteredTheMatrix]")
+        int testCount = patches.size() * globals.extensions.size()
+        println("##teamcity[testCount count='$testCount']")
+        println("##teamcity[testSuiteStarted name='Patch Update Autotest']")
+    }
+
+    private def runTest() {
+        patches.each { File patch ->
+            globals.extensions.each { String extension ->
+                new PatchTestCase(globals, patch, extension).run()
+            }
+        }
+    }
+
+    private static def tearDown() {
+        println("##teamcity[testSuiteFinished name='Patch Update Autotest']")
+    }
+
+    static ArrayList<File> findFiles(String extension, File directory = new File('.')) {
+        ArrayList<File> list = []
+        directory.eachFileRecurse(FileType.FILES) { file ->
+            if (file.name.endsWith(extension)) {
+                println(file)
+                list << file
+            }
+        }
+        return list
+    }
+
+    private org.jetbrains.teamcity.rest.Build getSourceBuild() {
+        org.jetbrains.teamcity.rest.Build build = null
+        org.jetbrains.teamcity.rest.Build patchTestBuild = globals.teamCityInstance.build(new BuildId(globals.buildId))
+
+        TriggeredInfo triggeredInfo = patchTestBuild.fetchTriggeredInfo()
+
+        if (triggeredInfo.build) {
+            build = triggeredInfo.build
+            ant.echo("Patches from triggered build will be downloaded and tested: ")
+        } else {
+            // Retrieving buildId of first trigger configuration in test's build configuration
+            BuildConfigurationId buildId = globals.teamCityInstance
+                    .buildConfiguration(new BuildConfigurationId(patchTestBuild.buildTypeId))
+                    .fetchBuildTriggers()
+                    .first()
+                    .fetchDependsOnBuildConfiguration()
+
+            if (buildId) build = globals.teamCityInstance
+                    .builds()
+                    .fromConfiguration(buildId)
+                    .withAnyStatus()
+                    .latest()
+            else throw new RuntimeException("buildId of of first trigger configuration didn't found")
+
+            if (build) ant.echo("Patches from latest build of first trigger configuration will be downloaded and tested: ")
+            else throw new RuntimeException("build of of first trigger configuration didn't found")
+        }
+
+        ant.echo(build.toString())
+        return build
+    }
+
+    private def setGlobalsBuildConfigurationIDs(org.jetbrains.teamcity.rest.Build build) {
+        List<ArtifactDependency> artifactDependencies = globals.teamCityInstance
+                .buildConfiguration(new BuildConfigurationId(build.buildTypeId))
+                .fetchBuildArtifactDependencies()
+
+        for (artifact in artifactDependencies) {
+            globals.buildConfigurationIDs.add(artifact.sourceBuildType.id)
+        }
+        println(globals.buildConfigurationIDs)
+    }
+}
+
+
+class PatchTestCase extends PatchTestClass {
+    private File patch
+    private String extension
+    private String testName
+    private Installer prevInstaller
+    private Installer currInstaller
+
+    PatchTestCase(Globals globals, File patch, String extension) {
+        super(globals)
+        this.patch = patch
+        this.extension = extension
+    }
+
+    private def setUp() {
         String patchName = patch.getName()
         List<String> partsOfPatchName = patchName.split('-')
-        boolean withBundledJdk = (!patchName.contains('no-jdk'))
 
         String edition = partsOfPatchName.get(0)
         edition = edition in ['IC', 'IU', 'PC', 'PY', 'PE'] ? edition : ''
         edition = (edition == 'PE') ? 'EDU' : edition
 
+        String previousInstallerName = partsOfPatchName.get(1)
+        String currentInstallerName = partsOfPatchName.get(2)
+        boolean withBundledJdk = (!patchName.contains('no-jdk'))
+
         String product = globals.product.substring(0, 1).toUpperCase() + globals.product.substring(1)
-        String testName = "${product} ${edition}${withBundledJdk ? '' : ' (no-jdk)'}${(edition || !withBundledJdk) ? ' edition' : ''} test, patch name: $patchName"
+        testName = "${product} ${edition}${withBundledJdk ? '' : ' (no-jdk)'}" +
+                   "${(edition || !withBundledJdk) ? ' edition' : ''} test, $extension installers"
         println("##teamcity[testStarted name='$testName']")
 
-        Closure installersBlockClose = { String ext ->
-            if (globals.extensions.size() > 1) println("##teamcity[blockClosed name='$ext installers']")
-        }
-        String ext = null
+        prevInstaller = new Installer(previousInstallerName, edition, extension, globals, withBundledJdk)
+        currInstaller = new Installer(currentInstallerName, edition, extension, globals, withBundledJdk)
+        ant.mkdir(dir: globals.tempDirectory.toString())
+    }
 
+    private def runTest() {
         try {
-            new AntBuilder().mkdir(dir: globals.tempDirectory.toString())
-            for (extension in globals.extensions) {
-                if (globals.extensions.size() > 1) println("##teamcity[blockOpened name='$extension installers']")
-                ext = extension
+            Build prevBuild = prevInstaller.installBuild(null, "previous")
+            prevBuild.calcChecksum()
+            if (globals.os == OS.MAC && !prevBuild.isSignatureValid()) println('Signature verification failed')
 
-                Installer prevInstaller = new Installer(partsOfPatchName.get(1), edition, extension, globals, withBundledJdk)
-                Build prevBuild = prevInstaller.installBuild(globals.tempDirectory.resolve("previous-${partsOfPatchName.get(0)}-${partsOfPatchName.get(1)}-$extension"))
-                prevBuild.calcChecksum()
-                if (globals.os == OS.MAC && !prevBuild.isSignatureValid()) println('Signature verification failed')
+            prevBuild.patch(patch)
+            String prevChecksum = prevBuild.calcChecksum()
+            if (globals.os == OS.MAC && !prevBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
+            println('')
 
-                prevBuild.patch(patch)
-                String prevChecksum = prevBuild.calcChecksum()
-                if (globals.os == OS.MAC && !prevBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
-                println('')
+            Build currBuild = currInstaller.installBuild(null, "current")
+            String currChecksum = currBuild.calcChecksum()
+            if (globals.os == OS.MAC && !currBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
 
-                Installer currInstaller = new Installer(partsOfPatchName.get(2), edition, extension, globals, withBundledJdk)
-                Build currBuild = currInstaller.installBuild(globals.tempDirectory.resolve("current-${partsOfPatchName.get(0)}-${partsOfPatchName.get(2)}-$extension"))
-                String currChecksum = currBuild.calcChecksum()
-                if (globals.os == OS.MAC && !currBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
-
-                if (prevChecksum != currChecksum) throw new KnownException("Checksums are different: $prevChecksum and $currChecksum")
-                println("\nBuild checksums of $extension installers are equal: $prevChecksum and $currChecksum\n")
-
-                prevInstaller.delete()
-                currInstaller.delete()
-                prevBuild.delete()
-                currBuild.delete()
-                installersBlockClose(ext)
-            }
+            if (prevChecksum != currChecksum) throw new KnownException("Checksums are different: $prevChecksum and $currChecksum")
+            println("\nBuild checksums of $extension installers are equal: $prevChecksum and $currChecksum\n")
         }
         catch (WrongConfigurationException e) {
-            installersBlockClose(ext)
             println("##teamcity[testIgnored name='$testName'] message='$e.message']")
         }
         catch (KnownException e) {
-            installersBlockClose(ext)
             println("##teamcity[testFailed name='$testName'] message='$e.message']")
         }
-        catch (e){
+        catch (e) {
             e.printStackTrace()
-            installersBlockClose(ext)
             println("##teamcity[testFailed name='$testName'] message='$e.message']")
-        } finally {
-            new AntBuilder().delete(dir: globals.tempDirectory.toString())
-            println("##teamcity[testFinished name='$testName']")
         }
     }
-    println("##teamcity[testSuiteFinished name='Patch Update Autotest']")
-}
 
-
-def downloadArtifactsFromTriggeredBuild(Globals globals){
-    org.jetbrains.teamcity.rest.Build build = TeamCityInstance["Companion"]
-            .guestAuth("http://buildserver.labs.intellij.net")
-            .build(new BuildId(globals.buildID))
-
-    triggeredInfo = build.fetchTriggeredInfo()
-    if (triggeredInfo.build != null) {
-        new AntBuilder().delete(dir: globals.patchesDir)
-        triggeredInfo.build.downloadArtifacts("*$globals.platform*", new File(globals.patchesDir))
+    private def tearDown() {
+        ant.delete(dir: globals.tempDirectory.toString())
+        println("##teamcity[testFinished name='$testName']")
     }
+
 }
 
 
 Map<String, String> map = evaluate(Arrays.toString(args)) as Map<String, String>
-println("Args: $map")
 Globals globals = new Globals(map)
-downloadArtifactsFromTriggeredBuild(globals)
-runTest(globals)
+new PatchTestSuite(globals).run()
