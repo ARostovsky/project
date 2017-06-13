@@ -37,15 +37,11 @@ class Globals {
      * List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm", "ijplatform_master_Idea",
      * "ijplatform_master_PhpStorm", etc.
      */
-    List<BuildConfigurationId> buildConfigurationIDs = []
+    List<BuildConfigurationId> buildConfigurationIDs
     /**
      * Build ID of currently running configuration
      */
     String buildId
-    /**
-     * Directory to store patches
-     */
-    String patchesDir
     /**
      * Extension values of installers, that should be tested. Can be "exe", "zip" (win.zip for IDEA),
      * "tar.gz" or "sit" according to OS
@@ -59,6 +55,10 @@ class Globals {
      * Folder for artifacts that should be saved after test. Used for store patch logs.
      */
     Path out
+    /**
+     * Directory to store patches
+     */
+    String patchesDir
     /**
      * platform value, passed through build configuration
      */
@@ -77,12 +77,15 @@ class Globals {
     Integer timeout
 
     Globals(Map<String, String> map) {
+        buildConfigurationIDs = map.buildConfigurationID
+                                   .split(';')
+                                   .collect { String it -> new BuildConfigurationId(it)}
         buildId = map.buildId
-        patchesDir = 'patches'
         os = OS.fromPatch(map.platform)
         // customExtensions - list of custom extensions, passed through build configuration
         extensions = map.customExtensions ? map.customExtensions.split(';') as List<String> : os.extensions()
         out = Paths.get(map.out)
+        patchesDir = 'patches'
         platform = map.platform
         product = map.product
         tempDirectory = Files.createTempDirectory('patchtest_')
@@ -390,7 +393,7 @@ class PatchTestSuite extends PatchTestClass {
 
         ant.delete(dir: globals.patchesDir)
         sourceBuild.downloadArtifacts("*$globals.platform*", new File(globals.patchesDir))
-        setGlobalsBuildConfigurationIDs(sourceBuild)
+        addBuildConfigurationIDsOfArtifactDependencyToGlobals(sourceBuild)
 
         patches = findFiles('.jar', new File(globals.patchesDir))
         println("##teamcity[enteredTheMatrix]")
@@ -454,13 +457,13 @@ class PatchTestSuite extends PatchTestClass {
         return build
     }
 
-    private def setGlobalsBuildConfigurationIDs(org.jetbrains.teamcity.rest.Build build) {
+    private def addBuildConfigurationIDsOfArtifactDependencyToGlobals(org.jetbrains.teamcity.rest.Build build) {
         List<ArtifactDependency> artifactDependencies = globals.teamCityInstance
                 .buildConfiguration(new BuildConfigurationId(build.buildTypeId))
                 .fetchBuildArtifactDependencies()
 
         for (artifact in artifactDependencies) {
-            globals.buildConfigurationIDs.add(artifact.sourceBuildType.id)
+            globals.buildConfigurationIDs.add(artifact.sourceBuildConfiguration.id)
         }
         println(globals.buildConfigurationIDs)
     }
