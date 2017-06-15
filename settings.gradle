@@ -1,1 +1,5 @@
-if ( teamcity_rest_client_version == 'sources' ) include '../teamcity-rest-client'
+if ( teamcity_rest_client_version == 'sources' ) {
+    include 'teamcity-rest-client'
+    project(':teamcity-rest-client').projectDir = new File(settingsDir, '../teamcity-rest-client')
+
+}

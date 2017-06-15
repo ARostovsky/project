@@ -11,7 +11,7 @@ dependencies {
     compile 'org.codehaus.groovy:groovy-all:2.4.8'
     compile 'org.apache.ant:ant:1.9.4'
     if (teamcity_rest_client_version == 'sources') {
-        compile project('../teamcity-rest-client')
+        compile project('teamcity-rest-client')
     } else {
         compile "org.jetbrains.teamcity:teamcity-rest-client:$teamcity_rest_client_version"
     }
@@ -24,7 +24,7 @@ task runScript (dependsOn: 'classes', type: JavaExec) {
     doFirst {
         def authUserId = project.hasProperty('authUserId') ? project.getProperty('authUserId') : null
         def authPassword = project.hasProperty('authPassword') ? project.getProperty('authPassword') : null
-        def buildConfigurationID = project.hasProperty('buildConfigurationID') ? project.getProperty('buildConfigurationID') : null
+        def buildConfigurationID = project.hasProperty('buildConfigurationID') ? project.getProperty('buildConfigurationID') : ''
         def buildId = project.hasProperty('buildId') ? project.getProperty('buildId') : null
         def customExtensions = project.hasProperty('customExtensions') ? project.getProperty('customExtensions') : ''
         def out = project.hasProperty('out') ? project.getProperty('out') : 'out'

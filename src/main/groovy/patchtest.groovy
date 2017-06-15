@@ -79,6 +79,7 @@ class Globals {
     Globals(Map<String, String> map) {
         buildConfigurationIDs = map.buildConfigurationID
                                    .split(';')
+                                   .findAll()
                                    .collect { String it -> new BuildConfigurationId(it)}
         buildId = map.buildId
         os = OS.fromPatch(map.platform)
@@ -463,7 +464,7 @@ class PatchTestSuite extends PatchTestClass {
                 .fetchBuildArtifactDependencies()
 
         for (artifact in artifactDependencies) {
-            globals.buildConfigurationIDs.add(artifact.sourceBuildConfiguration.id)
+            globals.buildConfigurationIDs.add(artifact.dependsOnBuildConfiguration.id)
         }
         println(globals.buildConfigurationIDs)
     }
