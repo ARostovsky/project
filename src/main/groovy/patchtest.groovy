@@ -461,7 +461,7 @@ class PatchTestSuite extends PatchTestClass {
     private def addBuildConfigurationIDsOfArtifactDependencyToGlobals(org.jetbrains.teamcity.rest.Build build) {
         List<ArtifactDependency> artifactDependencies = globals.teamCityInstance
                 .buildConfiguration(new BuildConfigurationId(build.buildTypeId))
-                .fetchBuildArtifactDependencies()
+                .fetchArtifactDependencies()
 
         for (artifact in artifactDependencies) {
             globals.buildConfigurationIDs.add(artifact.dependsOnBuildConfiguration.id)
