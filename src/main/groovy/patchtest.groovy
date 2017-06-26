@@ -370,9 +370,9 @@ abstract class PatchTestClass {
         this.globals = globals
     }
 
-    abstract def setUp
-    abstract def tearDown
-    abstract def runTest
+    abstract setUp
+    abstract tearDown
+    abstract runTest
 
     def run() {
         this.setUp()
@@ -389,7 +389,7 @@ class PatchTestSuite extends PatchTestClass {
         super(globals)
     }
 
-    private def setUp() {
+    private setUp() {
         org.jetbrains.teamcity.rest.Build sourceBuild = getSourceBuild()
 
         ant.delete(dir: globals.patchesDir)
@@ -403,7 +403,7 @@ class PatchTestSuite extends PatchTestClass {
         println("##teamcity[testSuiteStarted name='Patch Update Autotest']")
     }
 
-    private def runTest() {
+    private runTest() {
         patches.each { File patch ->
             globals.extensions.each { String extension ->
                 new PatchTestCase(globals, patch, extension).run()
@@ -411,7 +411,7 @@ class PatchTestSuite extends PatchTestClass {
         }
     }
 
-    private static def tearDown() {
+    private static tearDown() {
         println("##teamcity[testSuiteFinished name='Patch Update Autotest']")
     }
 
@@ -439,9 +439,9 @@ class PatchTestSuite extends PatchTestClass {
             // Retrieving buildId of first trigger configuration in test's build configuration
             BuildConfigurationId buildId = globals.teamCityInstance
                     .buildConfiguration(new BuildConfigurationId(patchTestBuild.buildTypeId))
-                    .fetchBuildTriggers()
+                    .fetchFinishBuildTriggers()
                     .first()
-                    .fetchDependsOnBuildConfiguration()
+                    .initiatedBuildConfiguration
 
             if (buildId) build = globals.teamCityInstance
                     .builds()
@@ -458,7 +458,7 @@ class PatchTestSuite extends PatchTestClass {
         return build
     }
 
-    private def addBuildConfigurationIDsOfArtifactDependencyToGlobals(org.jetbrains.teamcity.rest.Build build) {
+    private addBuildConfigurationIDsOfArtifactDependencyToGlobals(org.jetbrains.teamcity.rest.Build build) {
         List<ArtifactDependency> artifactDependencies = globals.teamCityInstance
                 .buildConfiguration(new BuildConfigurationId(build.buildTypeId))
                 .fetchArtifactDependencies()
@@ -484,7 +484,7 @@ class PatchTestCase extends PatchTestClass {
         this.extension = extension
     }
 
-    private def setUp() {
+    private setUp() {
         String patchName = patch.getName()
         List<String> partsOfPatchName = patchName.split('-')
 
@@ -506,7 +506,7 @@ class PatchTestCase extends PatchTestClass {
         ant.mkdir(dir: globals.tempDirectory.toString())
     }
 
-    private def runTest() {
+    private runTest() {
         try {
             Build prevBuild = prevInstaller.installBuild(null, "previous")
             prevBuild.calcChecksum()
@@ -536,7 +536,7 @@ class PatchTestCase extends PatchTestClass {
         }
     }
 
-    private def tearDown() {
+    private tearDown() {
         ant.delete(dir: globals.tempDirectory.toString())
         println("##teamcity[testFinished name='$testName']")
     }
