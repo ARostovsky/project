@@ -32,7 +32,7 @@ enum OS {
 }
 
 
-class Globals {
+class Context {
     AntBuilder ant = new AntBuilder()
     /**
      * Set of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm", "ijplatform_master_Idea",
@@ -40,8 +40,6 @@ class Globals {
      */
     Set<BuildConfigurationId> buildConfigurationIDs
     org.jetbrains.teamcity.rest.Build build
-
-    String buildId
     /**
      * Extension values of installers, that should be tested. Can be "exe", "zip" (win.zip for IDEA),
      * "tar.gz" or "sit" according to OS
@@ -73,7 +71,7 @@ class Globals {
      */
     Integer timeout
 
-    Globals(Map<String, String> map) {
+    Context(Map<String, String> map) {
         buildConfigurationIDs = map.buildConfigurationID
                                    .split(';')
                                    .findAll()
@@ -134,7 +132,7 @@ class Globals {
         return build
     }
 
-    private updateBuildConfigurationIDs(org.jetbrains.teamcity.rest.Build build) {
+    private void updateBuildConfigurationIDs(org.jetbrains.teamcity.rest.Build build) {
         List<ArtifactDependency> artifactDependencies = teamCityInstance
                 .buildConfiguration(new BuildConfigurationId(build.buildTypeId))
                 .fetchArtifactDependencies()
@@ -162,7 +160,7 @@ class KnownException extends RuntimeException {
 
 
 class Installer {
-    private Globals globals
+    private Context context
     String buildNumber
     String extension
     String installerName
@@ -175,37 +173,36 @@ class Installer {
      *                          If there is no editions - empty string should be specified then.
      * @param extension         Extension value of installer, can be "exe", "zip" (win.zip for IDEA), "tar.gz" or
      *                          "sit" according to OS
-     * @param globals           Global variables.
      * @param withBundledJdk    Is this build with included jdk or not, default is true.
      */
-    Installer(String buildNumber, String edition, String extension, Globals globals, boolean withBundledJdk = true) {
-        this.globals = globals
+    Installer(Context context, String buildNumber, String edition, String extension, boolean withBundledJdk = true) {
+        this.context = context
         this.buildNumber = buildNumber
         this.extension = extension
-        this.installerName = "${globals.product}${edition}-${buildNumber}${(withBundledJdk) ? '' : '-no-jdk'}.${extension}"
+        this.installerName = "${context.product}${edition}-${buildNumber}${(withBundledJdk) ? '' : '-no-jdk'}.${extension}"
     }
 
     private File getInstallerPath(String installer = installerName) {
-        return new File(globals.tempDirectory.toString(), installer)
+        return new File(context.tempDirectory.toString(), installer)
     }
 
     private void download() {
         BuildArtifact artifact = null
-        for (buildConfigurationID in globals.buildConfigurationIDs) {
-            org.jetbrains.teamcity.rest.Build build = globals.teamCityInstance.build(buildConfigurationID, buildNumber)
+        for (buildConfigurationID in context.buildConfigurationIDs) {
+            org.jetbrains.teamcity.rest.Build build = context.teamCityInstance.build(buildConfigurationID, buildNumber)
 
             if (build == null) continue
             println(build.toString())
 
             List<BuildArtifact> artifacts = build.getArtifacts("")
             artifact = getArtifact(artifacts)
-            globals.ant.echo("Found $artifact.fileName, downloading")
+            context.ant.echo("Found $artifact.fileName, downloading")
             artifact.download(getInstallerPath().getAbsoluteFile())
 
             break
         }
         if (artifact == null) {
-            throw new WrongConfigurationException("Check your build configuration: Didn't find build $buildNumber in configurations: $globals.buildConfigurationIDs")
+            throw new WrongConfigurationException("Check your build configuration: Didn't find build $buildNumber in configurations: $context.buildConfigurationIDs")
         }
     }
 
@@ -215,7 +212,7 @@ class Installer {
             artifactNamePattern = installerName
         } else {
             String regex = installerName.replace(buildNumber, '(EAP-)?[\\d.]+')
-            globals.ant.echo("Searching for artifact with $regex regex")
+            context.ant.echo("Searching for artifact with $regex regex")
 
             if (artifacts.count { it.fileName ==~ regex } == 1) {
                 artifactNamePattern = regex
@@ -229,28 +226,28 @@ class Installer {
 
     private Path install(Path installationFolder) {
         println('')
-        globals.ant.echo("Installing $installerName")
-        globals.ant.mkdir(dir: installationFolder.toString())
+        context.ant.echo("Installing $installerName")
+        context.ant.mkdir(dir: installationFolder.toString())
         File pathToInstaller = getInstallerPath()
 
         switch (extension) {
             case 'exe':
-                globals.ant.exec(executable: "cmd", failonerror: "True") {
-                    arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $globals.timeout > nul")
+                context.ant.exec(executable: "cmd", failonerror: "True") {
+                    arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $context.timeout > nul")
                 }
                 break
             case ['zip', 'win.zip']:
-                globals.ant.unzip(src: pathToInstaller, dest: installationFolder)
+                context.ant.unzip(src: pathToInstaller, dest: installationFolder)
                 break
             case 'tar.gz':
-                globals.ant.gunzip(src: pathToInstaller)
+                context.ant.gunzip(src: pathToInstaller)
                 String tar = installerName[0..-1 - ".gz".length()]
-                globals.ant.untar(src: getInstallerPath(tar), dest: installationFolder)
-                globals.ant.delete(file: getInstallerPath(tar).getAbsoluteFile())
+                context.ant.untar(src: getInstallerPath(tar), dest: installationFolder)
+                context.ant.delete(file: getInstallerPath(tar).getAbsoluteFile())
                 break
             case 'sit':
                 println("##teamcity[blockOpened name='unzip output']")
-                globals.ant.exec(executable: "unzip", failonerror: "True") {
+                context.ant.exec(executable: "unzip", failonerror: "True") {
                     arg(line: "$pathToInstaller -d $installationFolder")
                 }
                 println("##teamcity[blockClosed name='unzip output']")
@@ -259,7 +256,7 @@ class Installer {
                 throw new IllegalArgumentException("Wrong extension: $extension")
         }
 
-        switch (globals.os) {
+        switch (context.os) {
             case OS.WIN:
                 return installationFolder
             case OS.LINUX:
@@ -267,7 +264,7 @@ class Installer {
             case OS.MAC:
                 return getBuildFolder(installationFolder, 2)
             default:
-                throw new IllegalArgumentException("Wrong os: $globals.os")
+                throw new IllegalArgumentException("Wrong os: $context.os")
         }
     }
 
@@ -288,22 +285,22 @@ class Installer {
 
     Build installBuild(Path installationFolder = null, String prefix = "") {
         if (installationFolder == null) {
-            installationFolder = globals.tempDirectory.resolve("$prefix-${installerName.replace('.', '-')}")
+            installationFolder = context.tempDirectory.resolve("$prefix-${installerName.replace('.', '-')}")
         }
         download()
         Path buildFolder = install(installationFolder)
-        return new Build(buildFolder, globals)
+        return new Build(context, buildFolder)
     }
 
     void delete() {
-        globals.ant.delete(file: getInstallerPath().getAbsoluteFile())
+        context.ant.delete(file: getInstallerPath().getAbsoluteFile())
     }
 
 }
 
 
 class Build {
-    private Globals globals
+    private Context context
     Path buildFolder
 
     /**
@@ -319,36 +316,35 @@ class Build {
      *                              ├── lib
      *                              ├── plugins
      *                              └── ...
-     * @param globals       Global variables.
      */
-    Build(Path buildFolder, Globals globals) {
+    Build(Context context, Path buildFolder) {
+        this.context = context
         this.buildFolder = buildFolder
-        this.globals = globals
     }
 
     String calcChecksum() {
-        Path checksumFolder = globals.tempDirectory.resolve("checksums")
+        Path checksumFolder = context.tempDirectory.resolve("checksums")
 
         println('')
-        globals.ant.echo("Calculating checksum")
-        globals.ant.mkdir(dir: checksumFolder)
-        globals.ant.checksum(todir: checksumFolder, totalproperty: 'sum') {
+        context.ant.echo("Calculating checksum")
+        context.ant.mkdir(dir: checksumFolder)
+        context.ant.checksum(todir: checksumFolder, totalproperty: 'sum') {
             fileset(dir: buildFolder) {
-                if (globals.os == OS.WIN) {
+                if (context.os == OS.WIN) {
                     exclude(name: "**\\Uninstall.exe")
                     exclude(name: "**\\classes.jsa")
-                } else if (globals.os == OS.MAC) {
+                } else if (context.os == OS.MAC) {
                     exclude(name: "**\\*.dylib")
                 }
             }
         }
-        globals.ant.delete(dir: checksumFolder)
-        globals.ant.echo("Checksum is $ant.project.properties.sum")
-        return globals.ant.project.properties.sum
+        context.ant.delete(dir: checksumFolder)
+        context.ant.echo("Checksum is $context.ant.project.properties.sum")
+        return context.ant.project.properties.sum
     }
 
     void patch(File patch) {
-        Path log4jJar = Paths.get(globals.tempDirectory.toString(), 'log4j.jar')
+        Path log4jJar = Paths.get(context.tempDirectory.toString(), 'log4j.jar')
         buildFolder.resolve('lib').toFile().eachFileRecurse(FileType.FILES) { file ->
             if (file.name == 'log4j.jar') {
                 Files.copy(file.toPath(), log4jJar, REPLACE_EXISTING)
@@ -359,48 +355,48 @@ class Build {
         }
 
         println('')
-        globals.ant.echo("Applying patch $patch.name")
-        Path out = globals.out.resolve(patch.name)
-        globals.ant.mkdir(dir: out)
+        context.ant.echo("Applying patch $patch.name")
+        Path out = context.out.resolve(patch.name)
+        context.ant.mkdir(dir: out)
 
-        globals.ant.java(classpath: globals.ant.path { pathelement(path: patch); pathelement(path: log4jJar) },
+        context.ant.java(classpath: context.ant.path { pathelement(path: patch); pathelement(path: log4jJar) },
                          classname: "com.intellij.updater.Runner",
                          fork: "true",
                          maxmemory: "800m",
-                         timeout: globals.timeout * 3000,
+                         timeout: context.timeout * 3000,
                          resultproperty: 'patchResult') {
             jvmarg(value: "-Didea.updater.log=$out")
             arg(line: "install '$buildFolder'")
         }
-        switch (globals.ant.project.properties.patchResult) {
+        switch (context.ant.project.properties.patchResult) {
             case '42':
-                globals.ant.echo("Message 'Java Result: 42' is OK, because this error is thrown from GUI " +
+                context.ant.echo("Message 'Java Result: 42' is OK, because this error is thrown from GUI " +
                         "and it means that IDE restart is needed")
                 break
             case '-1':
                 throw new KnownException("Patch process failed with -1 result")
             default:
-                globals.ant.echo("Java result $ant.project.properties.patchResult is unexpected here, please check")
+                context.ant.echo("Java result $context.ant.project.properties.patchResult is unexpected here, please check")
         }
     }
 
     void delete() {
-        globals.ant.delete(dir: buildFolder.toString())
+        context.ant.delete(dir: buildFolder.toString())
     }
 
     boolean isSignatureValid() {
-        switch (globals.os) {
+        switch (context.os) {
             case OS.MAC:
                 Path folder = buildFolder.resolve('../').toAbsolutePath()
-                globals.ant.exec(executable: "codesign", failonerror: "False", outputproperty: "checkOutput", resultproperty: 'checkResult') {
+                context.ant.exec(executable: "codesign", failonerror: "False", outputproperty: "checkOutput", resultproperty: 'checkResult') {
                     arg(line: "-vv '$folder'")
                 }
-                globals.ant.echo(ant.project.properties.checkOutput)
-                return (globals.ant.project.properties.checkResult == '0')
+                context.ant.echo(context.ant.project.properties.checkOutput)
+                return (context.ant.project.properties.checkResult == '0')
 //            case OS.WIN:
 //                TODO
             default:
-                globals.ant.echo("Signature can't be verified for this OS")
+                context.ant.echo("Signature can't be verified for this OS")
                 return true
         }
     }
@@ -408,10 +404,10 @@ class Build {
 
 
 abstract class PatchTestClass {
-    protected Globals globals
+    protected Context context
 
-    PatchTestClass(Globals globals) {
-        this.globals = globals
+    PatchTestClass(Context context) {
+        this.context = context
     }
 
     protected setUp() { null }
@@ -429,25 +425,25 @@ abstract class PatchTestClass {
 class PatchTestSuite extends PatchTestClass {
     private ArrayList<File> patches
 
-    PatchTestSuite(Globals globals) {
-        super(globals)
+    PatchTestSuite(Context context) {
+        super(context)
     }
 
     protected setUp() {
-        globals.ant.delete(dir: globals.patchesDir)
-        globals.build.downloadArtifacts("*$globals.platform*", new File(globals.patchesDir))
+        context.ant.delete(dir: context.patchesDir)
+        context.build.downloadArtifacts("*$context.platform*", new File(context.patchesDir))
 
-        patches = findFiles('.jar', new File(globals.patchesDir))
+        patches = findFiles('.jar', new File(context.patchesDir))
         println("##teamcity[enteredTheMatrix]")
-        int testCount = patches.size() * globals.extensions.size()
+        int testCount = patches.size() * context.extensions.size()
         println("##teamcity[testCount count='$testCount']")
         println("##teamcity[testSuiteStarted name='Patch Update Autotest']")
     }
 
     protected runTest() {
         patches.each { File patch ->
-            globals.extensions.each { String extension ->
-                new PatchTestCase(globals, patch, extension).run()
+            context.extensions.each { String extension ->
+                new PatchTestCase(context, patch, extension).run()
             }
         }
     }
@@ -477,8 +473,8 @@ class PatchTestCase extends PatchTestClass {
     private Installer prevInstaller
     private Installer currInstaller
 
-    PatchTestCase(Globals globals, File patch, String extension) {
-        super(globals)
+    PatchTestCase(Context context, File patch, String extension) {
+        super(context)
         this.patch = patch
         this.extension = extension
     }
@@ -495,30 +491,30 @@ class PatchTestCase extends PatchTestClass {
         String currentInstallerName = partsOfPatchName.get(2)
         boolean withBundledJdk = (!patchName.contains('no-jdk'))
 
-        String product = globals.product.substring(0, 1).toUpperCase() + globals.product.substring(1)
+        String product = context.product.substring(0, 1).toUpperCase() + context.product.substring(1)
         testName = "${product} ${edition}${withBundledJdk ? '' : ' (no-jdk)'}" +
                    "${(edition || !withBundledJdk) ? ' edition' : ''} test, $extension installers"
         println("##teamcity[testStarted name='$testName']")
 
-        prevInstaller = new Installer(previousInstallerName, edition, extension, globals, withBundledJdk)
-        currInstaller = new Installer(currentInstallerName, edition, extension, globals, withBundledJdk)
-        globals.ant.mkdir(dir: globals.tempDirectory.toString())
+        prevInstaller = new Installer(context, previousInstallerName, edition, extension, withBundledJdk)
+        currInstaller = new Installer(context, currentInstallerName, edition, extension, withBundledJdk)
+        context.ant.mkdir(dir: context.tempDirectory.toString())
     }
 
     protected runTest() {
         try {
             Build prevBuild = prevInstaller.installBuild(null, "previous")
             prevBuild.calcChecksum()
-            if (globals.os == OS.MAC && !prevBuild.isSignatureValid()) println('Signature verification failed')
+            if (context.os == OS.MAC && !prevBuild.isSignatureValid()) println('Signature verification failed')
 
             prevBuild.patch(patch)
             String prevChecksum = prevBuild.calcChecksum()
-            if (globals.os == OS.MAC && !prevBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
+            if (context.os == OS.MAC && !prevBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
             println('')
 
             Build currBuild = currInstaller.installBuild(null, "current")
             String currChecksum = currBuild.calcChecksum()
-            if (globals.os == OS.MAC && !currBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
+            if (context.os == OS.MAC && !currBuild.isSignatureValid()) throw new KnownException('Signature verification failed')
 
             if (prevChecksum != currChecksum) throw new KnownException("Checksums are different: $prevChecksum and $currChecksum")
             println("\nBuild checksums of $extension installers are equal: $prevChecksum and $currChecksum\n")
@@ -536,7 +532,7 @@ class PatchTestCase extends PatchTestClass {
     }
 
     protected tearDown() {
-        globals.ant.delete(dir: globals.tempDirectory.toString())
+        context.ant.delete(dir: context.tempDirectory.toString())
         println("##teamcity[testFinished name='$testName']")
     }
 
@@ -544,5 +540,5 @@ class PatchTestCase extends PatchTestClass {
 
 
 Map<String, String> map = evaluate(Arrays.toString(args)) as Map<String, String>
-Globals globals = new Globals(map)
-new PatchTestSuite(globals).run()
+Context context = new Context(map)
+new PatchTestSuite(context).run()
