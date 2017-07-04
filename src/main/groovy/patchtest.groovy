@@ -34,10 +34,10 @@ enum OS {
 
 class Globals {
     /**
-     * List of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm", "ijplatform_master_Idea",
+     * Set of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm", "ijplatform_master_Idea",
      * "ijplatform_master_PhpStorm", etc.
      */
-    List<BuildConfigurationId> buildConfigurationIDs
+    Set<BuildConfigurationId> buildConfigurationIDs
     /**
      * Build ID of currently running configuration
      */
@@ -81,6 +81,7 @@ class Globals {
                                    .split(';')
                                    .findAll()
                                    .collect { String it -> new BuildConfigurationId(it)}
+                                   .toSet()
         buildId = map.buildId
         os = OS.fromPatch(map.platform)
         // customExtensions - list of custom extensions, passed through build configuration
