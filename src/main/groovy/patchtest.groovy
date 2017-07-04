@@ -350,7 +350,7 @@ class Build {
                 Files.copy(file.toPath(), log4jJar, REPLACE_EXISTING)
             }
         }
-        if (log4jJar  == null) {
+        if (log4jJar == null) {
             throw new RuntimeException("log4j.jar wasn't found")
         }
 
@@ -411,7 +411,9 @@ abstract class PatchTestClass {
     }
 
     protected setUp() { null }
+
     abstract protected runTest()
+
     protected tearDown() { null }
 
     protected run() {
