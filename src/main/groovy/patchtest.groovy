@@ -33,23 +33,20 @@ enum OS {
 
 
 class Globals {
+    AntBuilder ant = new AntBuilder()
     /**
      * Set of TeamCity's buildConfigurationID, like "ijplatform_master_PyCharm", "ijplatform_master_Idea",
      * "ijplatform_master_PhpStorm", etc.
      */
     Set<BuildConfigurationId> buildConfigurationIDs
-    /**
-     * Build ID of currently running configuration
-     */
+    org.jetbrains.teamcity.rest.Build build
+
     String buildId
     /**
      * Extension values of installers, that should be tested. Can be "exe", "zip" (win.zip for IDEA),
      * "tar.gz" or "sit" according to OS
      */
     List<String> extensions
-    /**
-     * {@link OS}
-     */
     OS os
     /**
      * Folder for artifacts that should be saved after test. Used for store patch logs.
@@ -82,7 +79,6 @@ class Globals {
                                    .findAll()
                                    .collect { String it -> new BuildConfigurationId(it)}
                                    .toSet()
-        buildId = map.buildId
         os = OS.fromPatch(map.platform)
         // customExtensions - list of custom extensions, passed through build configuration
         extensions = map.customExtensions ? map.customExtensions.split(';') as List<String> : os.extensions()
@@ -95,6 +91,58 @@ class Globals {
 
         teamCityInstance = TeamCityInstance["Companion"]
                 .httpAuth("http://buildserver.labs.intellij.net", map.authUserId, map.authPassword)
+
+        // buildId - Build ID of currently running configuration
+        build = getSourceBuild(map.buildId)
+        updateBuildConfigurationIDs(build)
+    }
+
+    private org.jetbrains.teamcity.rest.Build getSourceBuild(String patchTestBuildId) {
+        org.jetbrains.teamcity.rest.Build patchTestBuild = teamCityInstance.build(new BuildId(patchTestBuildId))
+
+        TriggeredInfo triggeredInfo = patchTestBuild.fetchTriggeredInfo()
+
+        if (triggeredInfo.build != null) {
+            build = triggeredInfo.build
+            ant.echo("Patches from triggered build will be downloaded and tested: ")
+        } else {
+            List<FinishBuildTrigger> finishBuildTriggers = teamCityInstance
+                    .buildConfiguration(new BuildConfigurationId(patchTestBuild.buildTypeId))
+                    .fetchFinishBuildTriggers()
+
+            if (finishBuildTriggers.isEmpty()) {
+                throw new RuntimeException("Current Patch Test configuration doesn't have Finish Build triggers")
+            }
+
+            for (trigger in finishBuildTriggers) {
+                build = teamCityInstance.builds()
+                                        .fromConfiguration(trigger.initiatedBuildConfiguration)
+                                        .withAnyStatus()
+                                        .latest()
+
+                if (build != null) break
+            }
+
+            if (build == null) {
+                throw new RuntimeException("All configurations specified as Finish Build triggers don't have any builds")
+            }
+
+            ant.echo("Patches from build (id: $build.id.stringId, number: $build.buildNumber) will be downloaded and tested: ")
+        }
+
+        ant.echo(build.toString())
+        return build
+    }
+
+    private updateBuildConfigurationIDs(org.jetbrains.teamcity.rest.Build build) {
+        List<ArtifactDependency> artifactDependencies = teamCityInstance
+                .buildConfiguration(new BuildConfigurationId(build.buildTypeId))
+                .fetchArtifactDependencies()
+
+        for (artifact in artifactDependencies) {
+            buildConfigurationIDs.add(artifact.dependsOnBuildConfiguration.id)
+        }
+        println(buildConfigurationIDs)
     }
 }
 
@@ -146,17 +194,17 @@ class Installer {
         for (buildConfigurationID in globals.buildConfigurationIDs) {
             org.jetbrains.teamcity.rest.Build build = globals.teamCityInstance.build(buildConfigurationID, buildNumber)
 
-            if (!build) continue
+            if (build == null) continue
             println(build.toString())
 
             List<BuildArtifact> artifacts = build.getArtifacts("")
             artifact = getArtifact(artifacts)
-            new AntBuilder().echo("Found $artifact.fileName, downloading")
+            globals.ant.echo("Found $artifact.fileName, downloading")
             artifact.download(getInstallerPath().getAbsoluteFile())
 
             break
         }
-        if (!artifact) {
+        if (artifact == null) {
             throw new WrongConfigurationException("Check your build configuration: Didn't find build $buildNumber in configurations: $globals.buildConfigurationIDs")
         }
     }
@@ -167,43 +215,42 @@ class Installer {
             artifactNamePattern = installerName
         } else {
             String regex = installerName.replace(buildNumber, '(EAP-)?[\\d.]+')
-            new AntBuilder().echo("Searching for artifact with $regex regex")
+            globals.ant.echo("Searching for artifact with $regex regex")
 
             if (artifacts.count { it.fileName ==~ regex } == 1) {
                 artifactNamePattern = regex
             }
         }
-        if (!artifactNamePattern) {
+        if (artifactNamePattern == null) {
             throw new RuntimeException("Didn't find suitable installer in artifacts: $artifacts")
         }
         return artifacts.findAll { it.fileName =~ artifactNamePattern }[0]
     }
 
     private Path install(Path installationFolder) {
-        AntBuilder ant = new AntBuilder()
         println('')
-        ant.echo("Installing $installerName")
-        ant.mkdir(dir: installationFolder.toString())
+        globals.ant.echo("Installing $installerName")
+        globals.ant.mkdir(dir: installationFolder.toString())
         File pathToInstaller = getInstallerPath()
 
         switch (extension) {
             case 'exe':
-                ant.exec(executable: "cmd", failonerror: "True") {
+                globals.ant.exec(executable: "cmd", failonerror: "True") {
                     arg(line: "/k $pathToInstaller /S /D=$installationFolder.absolutePath && ping 127.0.0.1 -n $globals.timeout > nul")
                 }
                 break
             case ['zip', 'win.zip']:
-                ant.unzip(src: pathToInstaller, dest: installationFolder)
+                globals.ant.unzip(src: pathToInstaller, dest: installationFolder)
                 break
             case 'tar.gz':
-                ant.gunzip(src: pathToInstaller)
+                globals.ant.gunzip(src: pathToInstaller)
                 String tar = installerName[0..-1 - ".gz".length()]
-                ant.untar(src: getInstallerPath(tar), dest: installationFolder)
-                ant.delete(file: getInstallerPath(tar).getAbsoluteFile())
+                globals.ant.untar(src: getInstallerPath(tar), dest: installationFolder)
+                globals.ant.delete(file: getInstallerPath(tar).getAbsoluteFile())
                 break
             case 'sit':
                 println("##teamcity[blockOpened name='unzip output']")
-                ant.exec(executable: "unzip", failonerror: "True") {
+                globals.ant.exec(executable: "unzip", failonerror: "True") {
                     arg(line: "$pathToInstaller -d $installationFolder")
                 }
                 println("##teamcity[blockClosed name='unzip output']")
@@ -240,7 +287,7 @@ class Installer {
     }
 
     Build installBuild(Path installationFolder = null, String prefix = "") {
-        if (!installationFolder) {
+        if (installationFolder == null) {
             installationFolder = globals.tempDirectory.resolve("$prefix-${installerName.replace('.', '-')}")
         }
         download()
@@ -249,7 +296,7 @@ class Installer {
     }
 
     void delete() {
-        new AntBuilder().delete(file: getInstallerPath().getAbsoluteFile())
+        globals.ant.delete(file: getInstallerPath().getAbsoluteFile())
     }
 
 }
@@ -282,11 +329,10 @@ class Build {
     String calcChecksum() {
         Path checksumFolder = globals.tempDirectory.resolve("checksums")
 
-        AntBuilder ant = new AntBuilder()
         println('')
-        ant.echo("Calculating checksum")
-        ant.mkdir(dir: checksumFolder)
-        ant.checksum(todir: checksumFolder, totalproperty: 'sum') {
+        globals.ant.echo("Calculating checksum")
+        globals.ant.mkdir(dir: checksumFolder)
+        globals.ant.checksum(todir: checksumFolder, totalproperty: 'sum') {
             fileset(dir: buildFolder) {
                 if (globals.os == OS.WIN) {
                     exclude(name: "**\\Uninstall.exe")
@@ -296,9 +342,9 @@ class Build {
                 }
             }
         }
-        ant.delete(dir: checksumFolder)
-        ant.echo("Checksum is $ant.project.properties.sum")
-        return ant.project.properties.sum
+        globals.ant.delete(dir: checksumFolder)
+        globals.ant.echo("Checksum is $ant.project.properties.sum")
+        return globals.ant.project.properties.sum
     }
 
     void patch(File patch) {
@@ -308,55 +354,53 @@ class Build {
                 Files.copy(file.toPath(), log4jJar, REPLACE_EXISTING)
             }
         }
-        if (!log4jJar) {
+        if (log4jJar  == null) {
             throw new RuntimeException("log4j.jar wasn't found")
         }
 
-        AntBuilder ant = new AntBuilder()
         println('')
-        ant.echo("Applying patch $patch.name")
+        globals.ant.echo("Applying patch $patch.name")
         Path out = globals.out.resolve(patch.name)
-        ant.mkdir(dir: out)
+        globals.ant.mkdir(dir: out)
 
-        ant.java(classpath: ant.path { pathelement(path: patch); pathelement(path: log4jJar) },
-                 classname: "com.intellij.updater.Runner",
-                 fork: "true",
-                 maxmemory: "800m",
-                 timeout: globals.timeout * 3000,
-                 resultproperty: 'patchResult') {
+        globals.ant.java(classpath: globals.ant.path { pathelement(path: patch); pathelement(path: log4jJar) },
+                         classname: "com.intellij.updater.Runner",
+                         fork: "true",
+                         maxmemory: "800m",
+                         timeout: globals.timeout * 3000,
+                         resultproperty: 'patchResult') {
             jvmarg(value: "-Didea.updater.log=$out")
             arg(line: "install '$buildFolder'")
         }
-        switch (ant.project.properties.patchResult) {
+        switch (globals.ant.project.properties.patchResult) {
             case '42':
-                ant.echo("Message 'Java Result: 42' is OK, because this error is thrown from GUI " +
+                globals.ant.echo("Message 'Java Result: 42' is OK, because this error is thrown from GUI " +
                         "and it means that IDE restart is needed")
                 break
             case '-1':
                 throw new KnownException("Patch process failed with -1 result")
             default:
-                ant.echo("Java result $ant.project.properties.patchResult is unexpected here, please check")
+                globals.ant.echo("Java result $ant.project.properties.patchResult is unexpected here, please check")
         }
     }
 
     void delete() {
-        new AntBuilder().delete(dir: buildFolder.toString())
+        globals.ant.delete(dir: buildFolder.toString())
     }
 
     boolean isSignatureValid() {
-        AntBuilder ant = new AntBuilder()
         switch (globals.os) {
             case OS.MAC:
                 Path folder = buildFolder.resolve('../').toAbsolutePath()
-                ant.exec(executable: "codesign", failonerror: "False", outputproperty: "checkOutput", resultproperty: 'checkResult') {
+                globals.ant.exec(executable: "codesign", failonerror: "False", outputproperty: "checkOutput", resultproperty: 'checkResult') {
                     arg(line: "-vv '$folder'")
                 }
-                ant.echo(ant.project.properties.checkOutput)
-                return (ant.project.properties.checkResult == '0')
+                globals.ant.echo(ant.project.properties.checkOutput)
+                return (globals.ant.project.properties.checkResult == '0')
 //            case OS.WIN:
 //                TODO
             default:
-                ant.echo("Signature can't be verified for this OS")
+                globals.ant.echo("Signature can't be verified for this OS")
                 return true
         }
     }
@@ -364,21 +408,20 @@ class Build {
 
 
 abstract class PatchTestClass {
-    abstract AntBuilder ant = new AntBuilder()
-    abstract Globals globals
+    protected Globals globals
 
     PatchTestClass(Globals globals) {
         this.globals = globals
     }
 
-    abstract setUp
-    abstract tearDown
-    abstract runTest
+    protected setUp() { null }
+    abstract protected runTest()
+    protected tearDown() { null }
 
-    def run() {
-        this.setUp()
-        this.runTest()
-        this.tearDown()
+    protected run() {
+        setUp()
+        runTest()
+        tearDown()
     }
 }
 
@@ -390,12 +433,9 @@ class PatchTestSuite extends PatchTestClass {
         super(globals)
     }
 
-    private setUp() {
-        org.jetbrains.teamcity.rest.Build sourceBuild = getSourceBuild()
-
-        ant.delete(dir: globals.patchesDir)
-        sourceBuild.downloadArtifacts("*$globals.platform*", new File(globals.patchesDir))
-        addBuildConfigurationIDsOfArtifactDependencyToGlobals(sourceBuild)
+    protected setUp() {
+        globals.ant.delete(dir: globals.patchesDir)
+        globals.build.downloadArtifacts("*$globals.platform*", new File(globals.patchesDir))
 
         patches = findFiles('.jar', new File(globals.patchesDir))
         println("##teamcity[enteredTheMatrix]")
@@ -404,7 +444,7 @@ class PatchTestSuite extends PatchTestClass {
         println("##teamcity[testSuiteStarted name='Patch Update Autotest']")
     }
 
-    private runTest() {
+    protected runTest() {
         patches.each { File patch ->
             globals.extensions.each { String extension ->
                 new PatchTestCase(globals, patch, extension).run()
@@ -412,7 +452,7 @@ class PatchTestSuite extends PatchTestClass {
         }
     }
 
-    private static tearDown() {
+    protected tearDown() {
         println("##teamcity[testSuiteFinished name='Patch Update Autotest']")
     }
 
@@ -427,48 +467,6 @@ class PatchTestSuite extends PatchTestClass {
         return list
     }
 
-    private org.jetbrains.teamcity.rest.Build getSourceBuild() {
-        org.jetbrains.teamcity.rest.Build build = null
-        org.jetbrains.teamcity.rest.Build patchTestBuild = globals.teamCityInstance.build(new BuildId(globals.buildId))
-
-        TriggeredInfo triggeredInfo = patchTestBuild.fetchTriggeredInfo()
-
-        if (triggeredInfo.build) {
-            build = triggeredInfo.build
-            ant.echo("Patches from triggered build will be downloaded and tested: ")
-        } else {
-            // Retrieving buildId of first trigger configuration in test's build configuration
-            BuildConfigurationId buildId = globals.teamCityInstance
-                    .buildConfiguration(new BuildConfigurationId(patchTestBuild.buildTypeId))
-                    .fetchFinishBuildTriggers()
-                    .first()
-                    .initiatedBuildConfiguration
-
-            if (buildId) build = globals.teamCityInstance
-                    .builds()
-                    .fromConfiguration(buildId)
-                    .withAnyStatus()
-                    .latest()
-            else throw new RuntimeException("buildId of of first trigger configuration didn't found")
-
-            if (build) ant.echo("Patches from latest build of first trigger configuration will be downloaded and tested: ")
-            else throw new RuntimeException("build of of first trigger configuration didn't found")
-        }
-
-        ant.echo(build.toString())
-        return build
-    }
-
-    private addBuildConfigurationIDsOfArtifactDependencyToGlobals(org.jetbrains.teamcity.rest.Build build) {
-        List<ArtifactDependency> artifactDependencies = globals.teamCityInstance
-                .buildConfiguration(new BuildConfigurationId(build.buildTypeId))
-                .fetchArtifactDependencies()
-
-        for (artifact in artifactDependencies) {
-            globals.buildConfigurationIDs.add(artifact.dependsOnBuildConfiguration.id)
-        }
-        println(globals.buildConfigurationIDs)
-    }
 }
 
 
@@ -485,7 +483,7 @@ class PatchTestCase extends PatchTestClass {
         this.extension = extension
     }
 
-    private setUp() {
+    protected setUp() {
         String patchName = patch.getName()
         List<String> partsOfPatchName = patchName.split('-')
 
@@ -504,10 +502,10 @@ class PatchTestCase extends PatchTestClass {
 
         prevInstaller = new Installer(previousInstallerName, edition, extension, globals, withBundledJdk)
         currInstaller = new Installer(currentInstallerName, edition, extension, globals, withBundledJdk)
-        ant.mkdir(dir: globals.tempDirectory.toString())
+        globals.ant.mkdir(dir: globals.tempDirectory.toString())
     }
 
-    private runTest() {
+    protected runTest() {
         try {
             Build prevBuild = prevInstaller.installBuild(null, "previous")
             prevBuild.calcChecksum()
@@ -537,8 +535,8 @@ class PatchTestCase extends PatchTestClass {
         }
     }
 
-    private tearDown() {
-        ant.delete(dir: globals.tempDirectory.toString())
+    protected tearDown() {
+        globals.ant.delete(dir: globals.tempDirectory.toString())
         println("##teamcity[testFinished name='$testName']")
     }
 
