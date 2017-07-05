@@ -39,6 +39,9 @@ class Context {
      * "ijplatform_master_PhpStorm", etc.
      */
     Set<BuildConfigurationId> buildConfigurationIDs
+    /**
+     * Build containing patches to test
+     */
     org.jetbrains.teamcity.rest.Build build
     /**
      * Extension values of installers, that should be tested. Can be "exe", "zip" (win.zip for IDEA),
