@@ -96,6 +96,12 @@ class Context {
         // buildId - Build ID of currently running configuration
         build = getSourceBuild(map.buildId)
         updateBuildConfigurationIDs(build)
+
+        println('')
+        ant.echo("Installers will be searched in the following build configurations:")
+        buildConfigurationIDs.each { buildConfigurationID ->
+            ant.echo(buildConfigurationID)
+        }
     }
 
     private org.jetbrains.teamcity.rest.Build getSourceBuild(String patchTestBuildId) {
@@ -140,10 +146,13 @@ class Context {
                 .buildConfiguration(new BuildConfigurationId(build.buildTypeId))
                 .fetchArtifactDependencies()
 
-        for (artifact in artifactDependencies) {
-            buildConfigurationIDs.add(artifact.dependsOnBuildConfiguration.id)
+        artifactDependencies.each { artifact ->
+            BuildConfigurationId buildConfiguration = artifact.dependsOnBuildConfiguration.id
+
+            if (buildConfiguration.stringId.toLowerCase().contains("installer")) {
+                buildConfigurationIDs.add(buildConfiguration)
+            }
         }
-        println(buildConfigurationIDs)
     }
 }
 
@@ -298,7 +307,6 @@ class Installer {
     void delete() {
         context.ant.delete(file: getInstallerPath().getAbsoluteFile())
     }
-
 }
 
 
@@ -406,72 +414,50 @@ class Build {
 }
 
 
-abstract class PatchTestClass {
-    protected Context context
+class PatchTestSuite {
+    private Context context
 
-    PatchTestClass(Context context) {
+    PatchTestSuite(Context context) {
         this.context = context
     }
 
-    protected setUp() { null }
-
-    abstract protected runTest()
-
-    protected tearDown() { null }
-
     protected run() {
-        setUp()
-        runTest()
-        tearDown()
-    }
-}
-
-
-class PatchTestSuite extends PatchTestClass {
-    private ArrayList<File> patches
-
-    PatchTestSuite(Context context) {
-        super(context)
-    }
-
-    protected setUp() {
+        println('')
         context.ant.delete(dir: context.patchesDir)
         context.build.downloadArtifacts("*$context.platform*", new File(context.patchesDir))
+        context.ant.echo("Downloaded patches:")
+        ArrayList<File> patches = findFiles('.jar', new File(context.patchesDir))
 
-        patches = findFiles('.jar', new File(context.patchesDir))
+        println('')
         println("##teamcity[enteredTheMatrix]")
         int testCount = patches.size() * context.extensions.size()
         println("##teamcity[testCount count='$testCount']")
         println("##teamcity[testSuiteStarted name='Patch Update Autotest']")
-    }
 
-    protected runTest() {
         patches.each { File patch ->
             context.extensions.each { String extension ->
                 new PatchTestCase(context, patch, extension).run()
             }
         }
-    }
 
-    protected tearDown() {
         println("##teamcity[testSuiteFinished name='Patch Update Autotest']")
     }
 
-    static ArrayList<File> findFiles(String extension, File directory = new File('.')) {
+    private ArrayList<File> findFiles(String extension, File directory = new File('.')) {
         ArrayList<File> list = []
         directory.eachFileRecurse(FileType.FILES) { file ->
             if (file.name.endsWith(extension)) {
-                println(file)
+                context.ant.echo(file)
                 list << file
             }
         }
         return list
     }
-
 }
 
 
-class PatchTestCase extends PatchTestClass {
+class PatchTestCase {
+    private Context context
     private File patch
     private String extension
     private String testName
@@ -479,12 +465,18 @@ class PatchTestCase extends PatchTestClass {
     private Installer currInstaller
 
     PatchTestCase(Context context, File patch, String extension) {
-        super(context)
+        this.context = context
         this.patch = patch
         this.extension = extension
     }
 
-    protected setUp() {
+    protected run() {
+        setUp()
+        runTest()
+        tearDown()
+    }
+
+    private setUp() {
         String patchName = patch.getName()
         List<String> partsOfPatchName = patchName.split('-')
 
@@ -506,7 +498,7 @@ class PatchTestCase extends PatchTestClass {
         context.ant.mkdir(dir: context.tempDirectory.toString())
     }
 
-    protected runTest() {
+    private runTest() {
         try {
             Build prevBuild = prevInstaller.installBuild(null, "previous")
             prevBuild.calcChecksum()
@@ -536,11 +528,10 @@ class PatchTestCase extends PatchTestClass {
         }
     }
 
-    protected tearDown() {
+    private tearDown() {
         context.ant.delete(dir: context.tempDirectory.toString())
         println("##teamcity[testFinished name='$testName']")
     }
-
 }
 
 
